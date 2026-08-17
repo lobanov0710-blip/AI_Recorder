@@ -51,8 +51,6 @@ public class RecordService extends Service {
         recordTimer =
                 new RecordTimer(
 
-                        this,
-
                         new RecordTimer.Callback() {
 
                             @Override

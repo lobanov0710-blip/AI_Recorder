@@ -20,7 +20,7 @@ public class RecordServiceController {
 
         this.context = context.getApplicationContext();
 
-        this.audioRecorder = new AudioRecorder(this.context);
+        this.audioRecorder = new AudioRecorder();
 
         this.repository = new RecordRepository(this.context);
 

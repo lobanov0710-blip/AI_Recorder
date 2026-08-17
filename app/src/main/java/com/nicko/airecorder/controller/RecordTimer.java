@@ -1,6 +1,5 @@
 package com.nicko.airecorder.controller;
 
-import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -16,8 +15,6 @@ public class RecordTimer {
 
     }
 
-    private final Context context;
-
     private final Callback callback;
 
     private final Handler handler =
@@ -29,11 +26,8 @@ public class RecordTimer {
     private static final long UPDATE_INTERVAL_MS = 80L;
 
     public RecordTimer(
-            Context context,
             Callback callback
     ) {
-
-        this.context = context.getApplicationContext();
 
         this.callback = callback;
 

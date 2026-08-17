@@ -1,6 +1,5 @@
 package com.nicko.airecorder.utils;
 
-import android.content.Context;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.util.Log;
@@ -14,8 +13,6 @@ public class AudioRecorder {
 
     private static final String TAG = "AudioRecorder";
 
-    private final Context context;
-
     private MediaRecorder recorder;
 
     private String filePath;
@@ -26,10 +23,7 @@ public class AudioRecorder {
 
     private boolean paused = false;
 
-    public AudioRecorder(Context context) {
-
-        this.context = context.getApplicationContext();
-
+    public AudioRecorder() {
     }
 
     public void startRecording(@NonNull File outputFile) throws IOException {
