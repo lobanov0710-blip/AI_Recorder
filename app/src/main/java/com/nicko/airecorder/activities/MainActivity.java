@@ -87,56 +87,88 @@ public class MainActivity extends AppCompatActivity {
 
         recordingController.observe(this);
 
-        binding.btnRecord.setOnClickListener(v -> {
+        binding.btnRecord.setOnClickListener(v ->
 
-            if (!permissionManager.hasAudioPermission()) {
+                handleRecordButtonClick()
 
-                permissionManager.requestAudioPermission();
-
-                return;
-
-            }
-
-            RecordingState state =
-                    viewModel.getRecordingState().getValue();
-
-            if (state == null) {
-
-                state = RecordingState.IDLE;
-
-            }
-
-            switch (state) {
-
-                case IDLE:
-
-                    binding.waveformView.clearWaveform();
-
-                    viewModel.startRecording();
-
-                    break;
-
-                case RECORDING:
-
-                    viewModel.pauseRecording();
-
-                    break;
-
-                case PAUSED:
-
-                    viewModel.resumeRecording();
-
-                    break;
-
-            }
-
-        });
+        );
 
         binding.btnStop.setOnClickListener(v ->
 
                 stopRecording()
 
         );
+
+    }
+    private void handleRecordButtonClick() {
+
+        RecordingState state =
+                viewModel.getRecordingState().getValue();
+
+        if (state == null) {
+
+            state = RecordingState.IDLE;
+
+        }
+
+        switch (state) {
+
+            case IDLE:
+
+                startRecordingWithPermissions();
+
+                break;
+
+            case RECORDING:
+
+                viewModel.pauseRecording();
+
+                break;
+
+            case PAUSED:
+
+                viewModel.resumeRecording();
+
+                break;
+
+        }
+
+    }
+    private void startRecordingWithPermissions() {
+
+        if (!permissionManager.hasAudioPermission()) {
+
+            permissionManager.requestAudioPermission();
+
+            return;
+
+        }
+
+        if (permissionManager
+                .shouldRequestNotificationPermission()) {
+
+            permissionManager
+                    .requestNotificationPermission();
+
+            return;
+
+        }
+
+        startRecordingNow();
+
+    }
+    private void startRecordingNow() {
+
+        RecordingState state =
+                viewModel.getRecordingState().getValue();
+
+        if (state != RecordingState.IDLE) {
+            return;
+        }
+
+        binding.waveformView.clearWaveform();
+
+        viewModel.startRecording();
 
     }
     private void stopRecording() {
@@ -465,11 +497,12 @@ public class MainActivity extends AppCompatActivity {
         );
 
         handleAudioPermissionResult(
-
                 requestCode,
-
                 grantResults
+        );
 
+        handleNotificationPermissionResult(
+                requestCode
         );
 
     }
@@ -481,14 +514,18 @@ public class MainActivity extends AppCompatActivity {
 
     ) {
 
-        if (requestCode != PermissionManager.REQUEST_RECORD_AUDIO) {
+        if (requestCode
+                != PermissionManager.REQUEST_RECORD_AUDIO) {
+
             return;
+
         }
 
         if (grantResults.length > 0
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                && grantResults[0]
+                == PackageManager.PERMISSION_GRANTED) {
 
-            viewModel.startRecording();
+            startRecordingWithPermissions();
 
             return;
 
@@ -499,6 +536,20 @@ public class MainActivity extends AppCompatActivity {
                         R.string.microphone_permission_required
                 )
         );
+
+    }
+    private void handleNotificationPermissionResult(
+            int requestCode
+    ) {
+
+        if (requestCode
+                != PermissionManager.REQUEST_POST_NOTIFICATIONS) {
+
+            return;
+
+        }
+
+        startRecordingNow();
 
     }
     private void showToast(String message) {
