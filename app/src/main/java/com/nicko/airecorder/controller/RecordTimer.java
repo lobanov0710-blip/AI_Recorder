@@ -2,6 +2,7 @@ package com.nicko.airecorder.controller;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 public class RecordTimer {
 
@@ -15,6 +16,8 @@ public class RecordTimer {
 
     }
 
+    private static final long UPDATE_INTERVAL_MS = 80L;
+
     private final Callback callback;
 
     private final Handler handler =
@@ -22,8 +25,13 @@ public class RecordTimer {
 
     private Runnable runnable;
 
-    private long recordStartTime;
-    private static final long UPDATE_INTERVAL_MS = 80L;
+    private long activeDurationMs = 0L;
+
+    private long segmentStartTime = 0L;
+
+    private boolean running = false;
+
+    private boolean paused = false;
 
     public RecordTimer(
             Callback callback
@@ -33,30 +41,43 @@ public class RecordTimer {
 
     }
 
-    public void start(long startTime) {
+    public void start() {
 
         stop();
 
-        recordStartTime = startTime;
+        activeDurationMs = 0L;
+
+        segmentStartTime =
+                SystemClock.elapsedRealtime();
+
+        running = true;
+
+        paused = false;
 
         runnable = new Runnable() {
 
             @Override
             public void run() {
 
-                long duration =
-                        System.currentTimeMillis() - recordStartTime;
+                if (!running || paused) {
+                    return;
+                }
 
-                callback.onTimeChanged(duration);
+                callback.onTimeChanged(
+                        getDuration()
+                );
 
-                int amplitude = callback.getAmplitude();
+                int amplitude =
+                        callback.getAmplitude();
 
                 amplitude = Math.min(
                         amplitude / 327,
                         100
                 );
 
-                callback.onAmplitudeChanged(amplitude);
+                callback.onAmplitudeChanged(
+                        amplitude
+                );
 
                 handler.postDelayed(
                         this,
@@ -71,11 +92,84 @@ public class RecordTimer {
 
     }
 
-    public void stop() {
+    public void pause() {
+
+        if (!running || paused) {
+            return;
+        }
+
+        activeDurationMs +=
+                SystemClock.elapsedRealtime()
+                        - segmentStartTime;
+
+        paused = true;
 
         if (runnable != null) {
 
-            handler.removeCallbacks(runnable);
+            handler.removeCallbacks(
+                    runnable
+            );
+
+        }
+
+        callback.onTimeChanged(
+                activeDurationMs
+        );
+
+    }
+
+    public void resume() {
+
+        if (!running || !paused) {
+            return;
+        }
+
+        segmentStartTime =
+                SystemClock.elapsedRealtime();
+
+        paused = false;
+
+        if (runnable != null) {
+
+            handler.post(runnable);
+
+        }
+
+    }
+
+    public long getDuration() {
+
+        if (!running || paused) {
+
+            return activeDurationMs;
+
+        }
+
+        return activeDurationMs
+                + SystemClock.elapsedRealtime()
+                - segmentStartTime;
+
+    }
+
+    public void stop() {
+
+        if (running && !paused) {
+
+            activeDurationMs +=
+                    SystemClock.elapsedRealtime()
+                            - segmentStartTime;
+
+        }
+
+        running = false;
+
+        paused = false;
+
+        if (runnable != null) {
+
+            handler.removeCallbacks(
+                    runnable
+            );
 
             runnable = null;
 

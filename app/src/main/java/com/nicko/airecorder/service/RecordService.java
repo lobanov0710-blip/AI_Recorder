@@ -24,8 +24,6 @@ public class RecordService extends Service {
 
     private boolean isRecording = false;
 
-    private long recordStartTime;
-
     private RecordServiceController controller;
 
     private RecordTimer recordTimer;
@@ -56,21 +54,32 @@ public class RecordService extends Service {
                             @Override
                             public int getAmplitude() {
 
-                                return controller.getMaxAmplitude();
+                                return controller
+                                        .getMaxAmplitude();
 
                             }
 
                             @Override
-                            public void onTimeChanged(long duration) {
+                            public void onTimeChanged(
+                                    long duration
+                            ) {
 
-                                broadcastManager.sendRecordTime(duration);
+                                broadcastManager
+                                        .sendRecordTime(
+                                                duration
+                                        );
 
                             }
 
                             @Override
-                            public void onAmplitudeChanged(int amplitude) {
+                            public void onAmplitudeChanged(
+                                    int amplitude
+                            ) {
 
-                                broadcastManager.sendAmplitude(amplitude);
+                                broadcastManager
+                                        .sendAmplitude(
+                                                amplitude
+                                        );
 
                             }
 
@@ -91,21 +100,26 @@ public class RecordService extends Service {
             return START_NOT_STICKY;
         }
 
-        String action = intent.getAction();
+        String action =
+                intent.getAction();
 
-        if (RecordActions.ACTION_START.equals(action)) {
+        if (RecordActions.ACTION_START
+                .equals(action)) {
 
             startRecording();
 
-        } else if (RecordActions.ACTION_PAUSE.equals(action)) {
+        } else if (RecordActions.ACTION_PAUSE
+                .equals(action)) {
 
             pauseRecording();
 
-        } else if (RecordActions.ACTION_RESUME.equals(action)) {
+        } else if (RecordActions.ACTION_RESUME
+                .equals(action)) {
 
             resumeRecording();
 
-        } else if (RecordActions.ACTION_STOP.equals(action)) {
+        } else if (RecordActions.ACTION_STOP
+                .equals(action)) {
 
             stopRecording();
 
@@ -127,9 +141,12 @@ public class RecordService extends Service {
 
                     NotificationController.NOTIFICATION_ID,
 
-                    notificationController.buildNotification(
-                            getString(R.string.record_preparing)
-                    )
+                    notificationController
+                            .buildNotification(
+                                    getString(
+                                            R.string.record_preparing
+                                    )
+                            )
 
             );
 
@@ -137,10 +154,7 @@ public class RecordService extends Service {
 
             isRecording = true;
 
-            recordStartTime =
-                    System.currentTimeMillis();
-
-            recordTimer.start(recordStartTime);
+            recordTimer.start();
 
             notifyRecordingStarted();
 
@@ -166,11 +180,16 @@ public class RecordService extends Service {
 
     private void pauseRecording() {
 
-        if (!isRecording || controller.isPaused()) {
+        if (!isRecording
+                || controller.isPaused()) {
+
             return;
+
         }
 
         if (controller.pauseRecording()) {
+
+            recordTimer.pause();
 
             notifyRecordingPaused();
 
@@ -180,11 +199,16 @@ public class RecordService extends Service {
 
     private void resumeRecording() {
 
-        if (!isRecording || !controller.isPaused()) {
+        if (!isRecording
+                || !controller.isPaused()) {
+
             return;
+
         }
 
         if (controller.resumeRecording()) {
+
+            recordTimer.resume();
 
             notifyRecordingResumed();
 
@@ -200,12 +224,19 @@ public class RecordService extends Service {
 
         try {
 
+            recordTimer.stop();
+
+            long duration =
+                    recordTimer.getDuration();
+
             boolean success =
                     controller.stopRecording();
 
             if (success) {
 
-                controller.saveRecord(recordStartTime);
+                controller.saveRecord(
+                        duration
+                );
 
             }
 
@@ -236,7 +267,9 @@ public class RecordService extends Service {
     private void notifyRecordingStarted() {
 
         updateRecordingNotification(
-                getString(R.string.record_in_progress)
+                getString(
+                        R.string.record_in_progress
+                )
         );
 
         broadcastManager.sendRecordStarted();
@@ -246,7 +279,9 @@ public class RecordService extends Service {
     private void notifyRecordingPaused() {
 
         updateRecordingNotification(
-                getString(R.string.record_paused)
+                getString(
+                        R.string.record_paused
+                )
         );
 
         broadcastManager.sendRecordPaused();
@@ -256,7 +291,9 @@ public class RecordService extends Service {
     private void notifyRecordingResumed() {
 
         updateRecordingNotification(
-                getString(R.string.record_in_progress)
+                getString(
+                        R.string.record_in_progress
+                )
         );
 
         broadcastManager.sendRecordResumed();
@@ -269,9 +306,12 @@ public class RecordService extends Service {
 
     }
 
-    private void updateRecordingNotification(String text) {
+    private void updateRecordingNotification(
+            String text
+    ) {
 
-        notificationController.updateNotification(text);
+        notificationController
+                .updateNotification(text);
 
     }
 
@@ -298,7 +338,9 @@ public class RecordService extends Service {
 
     @Nullable
     @Override
-    public IBinder onBind(Intent intent) {
+    public IBinder onBind(
+            Intent intent
+    ) {
 
         return null;
 

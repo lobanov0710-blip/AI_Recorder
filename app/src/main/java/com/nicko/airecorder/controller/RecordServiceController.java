@@ -18,11 +18,16 @@ public class RecordServiceController {
 
     public RecordServiceController(Context context) {
 
-        this.context = context.getApplicationContext();
+        this.context =
+                context.getApplicationContext();
 
-        this.audioRecorder = new AudioRecorder();
+        this.audioRecorder =
+                new AudioRecorder();
 
-        this.repository = new RecordRepository(this.context);
+        this.repository =
+                new RecordRepository(
+                        this.context
+                );
 
     }
 
@@ -56,22 +61,23 @@ public class RecordServiceController {
 
     }
 
-    public File startRecording() throws Exception {
+    public File startRecording()
+            throws Exception {
 
         String fileName =
-                "record_" +
-                        System.currentTimeMillis() +
-                        ".m4a";
+                "record_"
+                        + System.currentTimeMillis()
+                        + ".m4a";
 
-        File outputFile = new File(
+        File outputFile =
+                new File(
+                        context.getFilesDir(),
+                        fileName
+                );
 
-                context.getFilesDir(),
-
-                fileName
-
+        audioRecorder.startRecording(
+                outputFile
         );
-
-        audioRecorder.startRecording(outputFile);
 
         return outputFile;
 
@@ -83,16 +89,14 @@ public class RecordServiceController {
 
     }
 
-    public void saveRecord(long recordStartTime) {
+    public void saveRecord(long duration) {
 
-        File file = audioRecorder.getOutputFile();
+        File file =
+                audioRecorder.getOutputFile();
 
         if (!isValidRecording(file)) {
             return;
         }
-
-        long duration =
-                System.currentTimeMillis() - recordStartTime;
 
         repository.insert(
 
@@ -114,7 +118,9 @@ public class RecordServiceController {
 
     }
 
-    private boolean isValidRecording(File file) {
+    private boolean isValidRecording(
+            File file
+    ) {
 
         if (file == null) {
             return false;
