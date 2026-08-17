@@ -115,11 +115,6 @@ public class PlaybackManager {
         }
     }
 
-    public boolean isPrepared() {
-
-        return mediaPlayer != null;
-    }
-
     public void release() {
 
         if (mediaPlayer != null) {
@@ -145,43 +140,5 @@ public class PlaybackManager {
 
             mediaPlayer = null;
         }
-    }
-
-    public boolean isReady() {
-
-        return mediaPlayer != null;
-
-    }
-
-    public int getCurrentPositionSafe() {
-
-        try {
-
-            return mediaPlayer != null
-                    ? mediaPlayer.getCurrentPosition()
-                    : 0;
-
-        } catch (Exception e) {
-
-            return 0;
-
-        }
-
-    }
-
-    public int getDurationSafe() {
-
-        try {
-
-            return mediaPlayer != null
-                    ? mediaPlayer.getDuration()
-                    : 0;
-
-        } catch (Exception e) {
-
-            return 0;
-
-        }
-
     }
 }
