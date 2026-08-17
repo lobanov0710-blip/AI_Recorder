@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">AI Recorder</string>
+
+    <!-- Recording -->
+    <string name="record_start">Начать запись</string>
+    <string name="record_pause">Пауза</string>
+    <string name="record_resume">Продолжить</string>
+    <string name="record_preparing">Подготовка записи...</string>
+    <string name="record_in_progress">Идёт запись...</string>
+    <string name="record_paused">Запись приостановлена</string>
+
+    <!-- Rename -->
+    <string name="rename_title">Переименовать</string>
+    <string name="rename_save">Сохранить</string>
+    <string name="rename_cancel">Отмена</string>
+    <string name="enter_title">Введите название</string>
+
+    <!-- Delete -->
+    <string name="delete_title">Удаление записи</string>
+    <string name="delete_message">Удалить эту запись?</string>
+    <string name="delete_confirm">Удалить</string>
+    <string name="delete_error">Не удалось удалить файл</string>
+
+    <!-- Sharing -->
+    <string name="file_not_found">Файл не найден</string>
+    <string name="share_record">Поделиться записью</string>
+    <string name="share_app_not_found">Не найдено приложение для отправки</string>
+
+    <!-- Permissions -->
+    <string name="microphone_permission_required">Для записи необходимо разрешение на использование микрофона</string>
+
+    <!-- Player / Recording UI -->
+    <string name="recording_indicator">🔴 %1$s</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">Recording</string>
+    <string name="notification_title">Диктофон</string>
+
+</resources>
