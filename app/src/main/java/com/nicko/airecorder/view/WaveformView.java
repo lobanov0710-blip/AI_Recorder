@@ -20,8 +20,14 @@ public class WaveformView extends View {
 
     private static final float MIN_BAR_HEIGHT = 3f;
 
-    // скорость движения волны
-    private static final float SCROLL_SPEED = 1.2f;
+    /*
+     * Амплитуда во время записи приходит примерно
+     * каждые 80 мс из RecordTimer.
+     *
+     * За этот промежуток плавно сдвигаем waveform
+     * на ширину одного бара вместе с промежутком.
+     */
+    private static final long LIVE_ANIMATION_DURATION_MS = 80L;
 
     private final Paint playedPaint =
             new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -34,8 +40,11 @@ public class WaveformView extends View {
 
     private float progress = 0f;
 
-    // смещение для плавной анимации
     private float animationOffset = 0f;
+
+    private long animationStartTimeNanos = 0L;
+
+    private boolean frameCallbackPosted = false;
 
     private final Choreographer.FrameCallback frameCallback =
             new Choreographer.FrameCallback() {
@@ -43,58 +52,127 @@ public class WaveformView extends View {
                 @Override
                 public void doFrame(long frameTimeNanos) {
 
-                    animationOffset += SCROLL_SPEED;
+                    frameCallbackPosted = false;
 
-                    if (animationOffset >= BAR_WIDTH + BAR_SPACE) {
+                    if (!isAttachedToWindow()) {
+                        return;
+                    }
 
-                        animationOffset = 0f;
+                    if (animationStartTimeNanos == 0L) {
+
+                        animationStartTimeNanos =
+                                frameTimeNanos;
 
                     }
 
+                    long elapsedNanos =
+                            frameTimeNanos
+                                    - animationStartTimeNanos;
+
+                    float elapsedMs =
+                            elapsedNanos / 1_000_000f;
+
+                    float animationProgress =
+                            Math.min(
+                                    1f,
+                                    elapsedMs
+                                            / LIVE_ANIMATION_DURATION_MS
+                            );
+
+                    animationOffset =
+                            (BAR_WIDTH + BAR_SPACE)
+                                    * animationProgress;
+
                     invalidate();
 
-                    Choreographer.getInstance()
-                            .postFrameCallback(this);
+                    if (animationProgress < 1f) {
+
+                        postNextFrame();
+
+                    }
+
                 }
 
             };
 
     public WaveformView(Context context) {
+
         super(context);
+
         init();
+
     }
 
-    public WaveformView(Context context,
-                        AttributeSet attrs) {
+    public WaveformView(
+            Context context,
+            AttributeSet attrs
+    ) {
+
         super(context, attrs);
+
         init();
+
     }
 
-    public WaveformView(Context context,
-                        AttributeSet attrs,
-                        int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
+    public WaveformView(
+            Context context,
+            AttributeSet attrs,
+            int defStyleAttr
+    ) {
+
+        super(
+                context,
+                attrs,
+                defStyleAttr
+        );
+
         init();
+
     }
+
     private void init() {
 
-        playedPaint.setStyle(Paint.Style.STROKE);
-        playedPaint.setStrokeCap(Paint.Cap.ROUND);
-        playedPaint.setStrokeWidth(BAR_WIDTH);
-        playedPaint.setColor(Color.parseColor("#4CAF50"));
+        playedPaint.setStyle(
+                Paint.Style.STROKE
+        );
 
-        unplayedPaint.setStyle(Paint.Style.STROKE);
-        unplayedPaint.setStrokeCap(Paint.Cap.ROUND);
-        unplayedPaint.setStrokeWidth(BAR_WIDTH);
-        unplayedPaint.setColor(Color.parseColor("#D8D8D8"));
+        playedPaint.setStrokeCap(
+                Paint.Cap.ROUND
+        );
 
-        Choreographer.getInstance()
-                .postFrameCallback(frameCallback);
+        playedPaint.setStrokeWidth(
+                BAR_WIDTH
+        );
+
+        playedPaint.setColor(
+                Color.parseColor("#4CAF50")
+        );
+
+        unplayedPaint.setStyle(
+                Paint.Style.STROKE
+        );
+
+        unplayedPaint.setStrokeCap(
+                Paint.Cap.ROUND
+        );
+
+        unplayedPaint.setStrokeWidth(
+                BAR_WIDTH
+        );
+
+        unplayedPaint.setColor(
+                Color.parseColor("#D8D8D8")
+        );
+
     }
+
     /**
-     * Загрузка готовой волны.
+     * Загрузка готовой waveform.
+     * Используется для уже сохранённой записи.
      */
     public void setWaveform(int[] data) {
+
+        stopAnimation();
 
         waveform.clear();
 
@@ -103,30 +181,50 @@ public class WaveformView extends View {
             for (int value : data) {
 
                 waveform.add(
-                        Math.max(0,
-                                Math.min(100, value))
+
+                        Math.max(
+                                0,
+                                Math.min(
+                                        100,
+                                        value
+                                )
+                        )
+
                 );
+
             }
+
         }
+
         invalidate();
+
     }
+
     /**
-     * Добавление амплитуды во время записи.
+     * Добавление новой амплитуды
+     * во время активной записи.
      */
     public void addAmplitude(int amplitude) {
 
-        amplitude = Math.max(
-                0,
-                Math.min(100, amplitude)
-        );
+        amplitude =
+                Math.max(
+                        0,
+                        Math.min(
+                                100,
+                                amplitude
+                        )
+                );
 
         if (!waveform.isEmpty()) {
 
             int last =
-                    waveform.get(waveform.size() - 1);
+                    waveform.get(
+                            waveform.size() - 1
+                    );
 
             amplitude =
                     (last + amplitude) / 2;
+
         }
 
         waveform.add(amplitude);
@@ -134,11 +232,13 @@ public class WaveformView extends View {
         while (waveform.size() > MAX_BARS) {
 
             waveform.remove(0);
-        }
-        animationOffset = 0f;
 
-        invalidate();
+        }
+
+        startAnimation();
+
     }
+
     /**
      * Прогресс воспроизведения.
      */
@@ -147,24 +247,77 @@ public class WaveformView extends View {
         this.progress =
                 Math.max(
                         0f,
-                        Math.min(1f, progress)
+                        Math.min(
+                                1f,
+                                progress
+                        )
                 );
 
         invalidate();
+
     }
 
     /**
-     * Очистка волны.
+     * Очистка waveform.
      */
     public void clearWaveform() {
+
+        stopAnimation();
 
         waveform.clear();
 
         progress = 0f;
 
+        invalidate();
+
+    }
+
+    private void startAnimation() {
+
+        animationStartTimeNanos = 0L;
+
         animationOffset = 0f;
 
-        invalidate();
+        postNextFrame();
+
+    }
+
+    private void postNextFrame() {
+
+        if (frameCallbackPosted) {
+            return;
+        }
+
+        if (!isAttachedToWindow()) {
+            return;
+        }
+
+        frameCallbackPosted = true;
+
+        Choreographer.getInstance()
+                .postFrameCallback(
+                        frameCallback
+                );
+
+    }
+
+    private void stopAnimation() {
+
+        if (frameCallbackPosted) {
+
+            Choreographer.getInstance()
+                    .removeFrameCallback(
+                            frameCallback
+                    );
+
+            frameCallbackPosted = false;
+
+        }
+
+        animationStartTimeNanos = 0L;
+
+        animationOffset = 0f;
+
     }
 
     @Override
@@ -176,12 +329,15 @@ public class WaveformView extends View {
             return;
         }
 
-        float height = getHeight();
+        float height =
+                getHeight();
 
-        float centerY = height / 2f;
+        float centerY =
+                height / 2f;
 
         float totalWidth =
-                waveform.size() * (BAR_WIDTH + BAR_SPACE);
+                waveform.size()
+                        * (BAR_WIDTH + BAR_SPACE);
 
         float startX =
                 Math.max(
@@ -192,13 +348,21 @@ public class WaveformView extends View {
         startX -= animationOffset;
 
         int playedBars =
-                (int) (progress * waveform.size());
+                (int) (
+                        progress
+                                * waveform.size()
+                );
 
-        for (int i = 0; i < waveform.size(); i++) {
+        for (
+                int i = 0;
+                i < waveform.size();
+                i++
+        ) {
 
             float x =
-                    startX +
-                            i * (BAR_WIDTH + BAR_SPACE);
+                    startX
+                            + i
+                            * (BAR_WIDTH + BAR_SPACE);
 
             if (x < -BAR_WIDTH) {
                 continue;
@@ -209,7 +373,9 @@ public class WaveformView extends View {
             }
 
             float lineHeight =
-                    waveform.get(i) / 100f * centerY;
+                    waveform.get(i)
+                            / 100f
+                            * centerY;
 
             lineHeight =
                     Math.max(
@@ -235,15 +401,18 @@ public class WaveformView extends View {
                     centerY + lineHeight,
                     paint
             );
+
         }
+
     }
 
     @Override
     protected void onDetachedFromWindow() {
 
+        stopAnimation();
+
         super.onDetachedFromWindow();
 
-        Choreographer.getInstance()
-                .removeFrameCallback(frameCallback);
     }
+
 }
