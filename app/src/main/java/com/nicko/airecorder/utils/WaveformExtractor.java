@@ -4,78 +4,119 @@ import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class WaveformExtractor {
 
+    private static final String TAG =
+            "WaveformExtractor";
+
     private static final int TARGET_POINTS = 180;
 
+    private static final ExecutorService EXECUTOR =
+            Executors.newSingleThreadExecutor();
+
+    private final Handler mainHandler =
+            new Handler(Looper.getMainLooper());
+
     public interface Callback {
+
         void onWaveformReady(int[] waveform);
+
     }
 
-    public void extract(File file, Callback callback) {
+    public void extract(
+            File file,
+            Callback callback
+    ) {
 
-        WaveformCache cache = WaveformCache.getInstance();
+        WaveformCache cache =
+                WaveformCache.getInstance();
 
-        int[] cached = cache.get(file.getAbsolutePath());
+        int[] cached =
+                cache.get(
+                        file.getAbsolutePath()
+                );
 
         if (cached != null) {
 
             if (callback != null) {
 
-                new Handler(Looper.getMainLooper()).post(() ->
+                mainHandler.post(() ->
                         callback.onWaveformReady(cached)
                 );
 
             }
 
             return;
+
         }
 
-        new Thread(() -> {
+        EXECUTOR.execute(() -> {
 
-            int[] result = buildWaveform(file);
+            int[] result =
+                    buildWaveform(file);
 
-            cache.put(file.getAbsolutePath(), result);
+            cache.put(
+                    file.getAbsolutePath(),
+                    result
+            );
 
             if (callback != null) {
 
-                new Handler(Looper.getMainLooper()).post(() ->
+                mainHandler.post(() ->
                         callback.onWaveformReady(result)
                 );
 
             }
 
-        }).start();
+        });
+
     }
 
     private int[] buildWaveform(File file) {
 
-        List<Integer> amplitudes = new ArrayList<>();
+        List<Integer> amplitudes =
+                new ArrayList<>();
 
-        MediaExtractor extractor = new MediaExtractor();
+        MediaExtractor extractor =
+                new MediaExtractor();
 
         try {
 
-            extractor.setDataSource(file.getAbsolutePath());
+            extractor.setDataSource(
+                    file.getAbsolutePath()
+            );
 
             int audioTrack = -1;
 
-            for (int i = 0; i < extractor.getTrackCount(); i++) {
+            for (
+                    int i = 0;
+                    i < extractor.getTrackCount();
+                    i++
+            ) {
 
-                MediaFormat format = extractor.getTrackFormat(i);
+                MediaFormat format =
+                        extractor.getTrackFormat(i);
 
-                String mime = format.getString(MediaFormat.KEY_MIME);
+                String mime =
+                        format.getString(
+                                MediaFormat.KEY_MIME
+                        );
 
-                if (mime != null && mime.startsWith("audio/")) {
+                if (mime != null
+                        && mime.startsWith("audio/")) {
 
                     audioTrack = i;
+
                     break;
 
                 }
@@ -83,16 +124,25 @@ public class WaveformExtractor {
             }
 
             if (audioTrack == -1) {
+
                 return new int[0];
+
             }
 
-            extractor.selectTrack(audioTrack);
+            extractor.selectTrack(
+                    audioTrack
+            );
 
-            ByteBuffer buffer = ByteBuffer.allocate(8192);
+            ByteBuffer buffer =
+                    ByteBuffer.allocate(8192);
 
             while (true) {
 
-                int size = extractor.readSampleData(buffer, 0);
+                int size =
+                        extractor.readSampleData(
+                                buffer,
+                                0
+                        );
 
                 if (size < 0) {
                     break;
@@ -102,12 +152,21 @@ public class WaveformExtractor {
 
                 for (int i = 0; i < size; i++) {
 
-                    amplitude += Math.abs(buffer.get(i));
+                    amplitude +=
+                            Math.abs(
+                                    buffer.get(i)
+                            );
 
                 }
 
                 amplitudes.add(
-                        amplitude / Math.max(size, 1)
+
+                        amplitude
+                                / Math.max(
+                                size,
+                                1
+                        )
+
                 );
 
                 buffer.clear();
@@ -118,7 +177,11 @@ public class WaveformExtractor {
 
         } catch (IOException e) {
 
-            e.printStackTrace();
+            Log.e(
+                    TAG,
+                    "Ошибка извлечения waveform",
+                    e
+            );
 
         } finally {
 
@@ -127,22 +190,38 @@ public class WaveformExtractor {
         }
 
         if (amplitudes.isEmpty()) {
+
             return new int[0];
-        }
-
-        int[] waveform = new int[amplitudes.size()];
-
-        for (int i = 0; i < amplitudes.size(); i++) {
-
-            waveform[i] = amplitudes.get(i);
 
         }
 
-        waveform = normalize(waveform);
+        int[] waveform =
+                new int[
+                        amplitudes.size()
+                        ];
 
-        waveform = compress(waveform, TARGET_POINTS);
+        for (
+                int i = 0;
+                i < amplitudes.size();
+                i++
+        ) {
+
+            waveform[i] =
+                    amplitudes.get(i);
+
+        }
+
+        waveform =
+                normalize(waveform);
+
+        waveform =
+                compress(
+                        waveform,
+                        TARGET_POINTS
+                );
 
         return waveform;
+
     }
 
     private int[] normalize(int[] data) {
@@ -152,14 +231,23 @@ public class WaveformExtractor {
         for (int value : data) {
 
             if (value > max) {
+
                 max = value;
+
             }
 
         }
 
-        for (int i = 0; i < data.length; i++) {
+        for (
+                int i = 0;
+                i < data.length;
+                i++
+        ) {
 
-            data[i] = data[i] * 100 / max;
+            data[i] =
+                    data[i]
+                            * 100
+                            / max;
 
         }
 
@@ -167,25 +255,46 @@ public class WaveformExtractor {
 
     }
 
-    private int[] compress(int[] source, int targetSize) {
+    private int[] compress(
+            int[] source,
+            int targetSize
+    ) {
 
         if (source.length <= targetSize) {
+
             return source;
+
         }
 
-        int[] result = new int[targetSize];
+        int[] result =
+                new int[
+                        targetSize
+                        ];
 
-        float step = (float) source.length / targetSize;
+        float step =
+                (float) source.length
+                        / targetSize;
 
-        for (int i = 0; i < targetSize; i++) {
+        for (
+                int i = 0;
+                i < targetSize;
+                i++
+        ) {
 
-            int start = (int) (i * step);
+            int start =
+                    (int) (i * step);
 
-            int end = (int) ((i + 1) * step);
+            int end =
+                    (int) ((i + 1) * step);
 
             int max = 0;
 
-            for (int j = start; j < end && j < source.length; j++) {
+            for (
+                    int j = start;
+                    j < end
+                            && j < source.length;
+                    j++
+            ) {
 
                 if (source[j] > max) {
 
