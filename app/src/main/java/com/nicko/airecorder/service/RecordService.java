@@ -117,12 +117,6 @@ public class RecordService extends Service {
 
     }
 
-    private boolean canHandleRecording() {
-
-        return isRecording;
-
-    }
-
     private void startRecording() {
 
         if (isRecording) {
