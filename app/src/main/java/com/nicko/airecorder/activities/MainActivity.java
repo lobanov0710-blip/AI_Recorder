@@ -218,80 +218,93 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        recordReceiver = new RecordReceiver(
+        recordReceiver =
+                new RecordReceiver(
 
-                new RecordReceiver.Callback() {
+                        new RecordReceiver.Callback() {
 
-                    @Override
-                    public void onRecordStarted() {
+                            @Override
+                            public void onRecordStarted() {
 
-                        viewModel.setRecording();
+                                viewModel.setRecording();
 
-                    }
+                            }
 
-                    @Override
-                    public void onRecordPaused() {
+                            @Override
+                            public void onRecordPaused() {
 
-                        viewModel.setPaused();
+                                viewModel.setPaused();
 
-                    }
+                            }
 
-                    @Override
-                    public void onRecordResumed() {
+                            @Override
+                            public void onRecordResumed() {
 
-                        viewModel.setResumed();
+                                viewModel.setResumed();
 
-                    }
+                            }
 
-                    @Override
-                    public void onRecordStopped() {
+                            @Override
+                            public void onRecordStopped() {
 
-                        viewModel.setStopped();
+                                viewModel.setStopped();
 
-                    }
+                            }
 
-                    @Override
-                    public void onRecordTime(long duration) {
+                            @Override
+                            public void onRecordTime(
+                                    long duration
+                            ) {
 
-                        long seconds = duration / 1000;
+                                long seconds =
+                                        duration / 1000;
 
-                        String time = String.format(
+                                String time =
+                                        String.format(
 
-                                java.util.Locale.getDefault(),
+                                                java.util.Locale
+                                                        .getDefault(),
 
-                                "%02d:%02d",
+                                                "%02d:%02d",
 
-                                seconds / 60,
+                                                seconds / 60,
 
-                                seconds % 60
+                                                seconds % 60
 
-                        );
+                                        );
 
-                        binding.txtRecordTime.setText(
+                                binding.txtRecordTime.setText(
 
-                                getString(
-                                        R.string.recording_indicator,
-                                        time
-                                )
+                                        getString(
+                                                R.string.recording_indicator,
+                                                time
+                                        )
 
-                        );
+                                );
 
-                    }
+                            }
 
-                    @Override
-                    public void onAmplitude(int amplitude) {
+                            @Override
+                            public void onAmplitude(
+                                    int amplitude
+                            ) {
 
-                        binding.waveformView.addAmplitude(amplitude);
+                                binding.waveformView
+                                        .addAmplitude(
+                                                amplitude
+                                        );
 
-                    }
+                            }
 
-                }
+                        }
 
-        );
+                );
 
-        IntentFilter filter = createRecordIntentFilter();
+        IntentFilter filter =
+                createRecordIntentFilter();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT
+                >= Build.VERSION_CODES.TIRAMISU) {
 
             registerReceiver(
                     recordReceiver,
@@ -307,6 +320,8 @@ public class MainActivity extends AppCompatActivity {
             );
 
         }
+
+        viewModel.requestRecordingState();
 
     }
 

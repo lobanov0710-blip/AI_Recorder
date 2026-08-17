@@ -17,6 +17,9 @@ public final class RecordActions {
     public static final String ACTION_RESUME =
             "RESUME_RECORD";
 
+    public static final String ACTION_REQUEST_STATE =
+            "REQUEST_RECORD_STATE";
+
     public static final String ACTION_RECORD_STARTED =
             "RECORD_STARTED";
 

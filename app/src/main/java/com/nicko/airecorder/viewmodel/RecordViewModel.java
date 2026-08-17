@@ -55,6 +55,13 @@ public class RecordViewModel extends AndroidViewModel {
         return records;
 
     }
+    public void requestRecordingState() {
+
+        sendServiceAction(
+                RecordActions.ACTION_REQUEST_STATE
+        );
+
+    }
 
     public void startRecording() {
 

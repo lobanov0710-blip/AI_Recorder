@@ -123,6 +123,11 @@ public class RecordService extends Service {
 
             stopRecording();
 
+        } else if (RecordActions.ACTION_REQUEST_STATE
+                .equals(action)) {
+
+            sendCurrentState(startId);
+
         }
 
         return START_NOT_STICKY;
@@ -264,6 +269,49 @@ public class RecordService extends Service {
 
     }
 
+    private void sendCurrentState(
+            int startId
+    ) {
+
+        if (!isRecording) {
+
+            broadcastManager
+                    .sendRecordStopped();
+
+            broadcastManager
+                    .sendRecordTime(0L);
+
+            /*
+             * ACTION_REQUEST_STATE может создать сервис,
+             * если записи сейчас нет.
+             *
+             * После ответа пустой сервис нам не нужен.
+             */
+            stopSelf(startId);
+
+            return;
+
+        }
+
+        if (controller.isPaused()) {
+
+            broadcastManager
+                    .sendRecordPaused();
+
+        } else {
+
+            broadcastManager
+                    .sendRecordStarted();
+
+        }
+
+        broadcastManager
+                .sendRecordTime(
+                        recordTimer.getDuration()
+                );
+
+    }
+
     private void notifyRecordingStarted() {
 
         updateRecordingNotification(
@@ -272,7 +320,8 @@ public class RecordService extends Service {
                 )
         );
 
-        broadcastManager.sendRecordStarted();
+        broadcastManager
+                .sendRecordStarted();
 
     }
 
@@ -284,7 +333,8 @@ public class RecordService extends Service {
                 )
         );
 
-        broadcastManager.sendRecordPaused();
+        broadcastManager
+                .sendRecordPaused();
 
     }
 
@@ -296,13 +346,15 @@ public class RecordService extends Service {
                 )
         );
 
-        broadcastManager.sendRecordResumed();
+        broadcastManager
+                .sendRecordResumed();
 
     }
 
     private void notifyRecordingStopped() {
 
-        broadcastManager.sendRecordStopped();
+        broadcastManager
+                .sendRecordStopped();
 
     }
 
