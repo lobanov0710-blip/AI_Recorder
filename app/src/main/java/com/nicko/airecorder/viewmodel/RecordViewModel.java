@@ -194,19 +194,6 @@ public class RecordViewModel extends AndroidViewModel {
 
     }
 
-    public void setIdle() {
-
-        if (recordingState.getValue()
-                == RecordingState.IDLE) {
-            return;
-        }
-
-        recordingState.setValue(
-                RecordingState.IDLE
-        );
-
-    }
-
     private void sendServiceAction(String action) {
 
         Intent intent =
