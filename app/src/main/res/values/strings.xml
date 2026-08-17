@@ -38,4 +38,10 @@
     <string name="notification_channel_name">Recording</string>
     <string name="notification_title">Диктофон</string>
 
+    <!-- Player -->
+    <string name="player_play">▶</string>
+    <string name="player_pause">⏸</string>
+    <string name="playback_error">Ошибка воспроизведения</string>
+    <string name="player_time_format">%1$02d:%2$02d / %3$02d:%4$02d</string>
+
 </resources>
