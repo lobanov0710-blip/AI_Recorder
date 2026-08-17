@@ -408,16 +408,27 @@ public class MainActivity extends AppCompatActivity {
 
         dialogManager.showDeleteDialog(() -> {
 
-            java.io.File file = new java.io.File(item.getFilePath());
+            java.io.File file =
+                    new java.io.File(
+                            item.getFilePath()
+                    );
 
-            if (file.exists()) {
+            if (file.exists()
+                    && !file.delete()) {
 
-                //noinspection ResultOfMethodCallIgnored
-                file.delete();
+                showToast(
+                        getString(
+                                R.string.delete_error
+                        )
+                );
+
+                return;
 
             }
 
-            viewModel.delete(item.getId());
+            viewModel.delete(
+                    item.getId()
+            );
 
         });
 
