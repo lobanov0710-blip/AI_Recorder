@@ -110,8 +110,6 @@ public class MainActivity extends AppCompatActivity {
 
                 case IDLE:
 
-                case STOPPED:
-
                     binding.waveformView.clearWaveform();
 
                     viewModel.startRecording();

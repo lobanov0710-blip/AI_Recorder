@@ -61,18 +61,6 @@ public class RecordingController {
                     );
 
                     break;
-
-                case STOPPED:
-
-                    updateUi(
-                            R.string.record_start,
-                            false,
-                            false,
-                            false
-                    );
-
-                    break;
-
             }
 
         });
