@@ -10,16 +10,22 @@ public class PlaybackManager {
 
     private MediaPlayer mediaPlayer;
 
+    private boolean prepared = false;
+
     private PlaybackManager() {
     }
 
     public static synchronized PlaybackManager getInstance() {
 
         if (instance == null) {
-            instance = new PlaybackManager();
+
+            instance =
+                    new PlaybackManager();
+
         }
 
         return instance;
+
     }
 
     public void prepare(
@@ -31,114 +37,236 @@ public class PlaybackManager {
 
         release();
 
-        mediaPlayer = new MediaPlayer();
+        prepared = false;
 
-        mediaPlayer.setDataSource(filePath);
+        mediaPlayer =
+                new MediaPlayer();
 
-        mediaPlayer.setOnPreparedListener(preparedListener);
+        mediaPlayer.setDataSource(
+                filePath
+        );
 
-        mediaPlayer.setOnCompletionListener(completionListener);
+        mediaPlayer.setOnPreparedListener(mp -> {
 
-        mediaPlayer.setOnErrorListener(errorListener);
+            prepared = true;
+
+            if (preparedListener != null) {
+
+                preparedListener.onPrepared(mp);
+
+            }
+
+        });
+
+        mediaPlayer.setOnCompletionListener(mp -> {
+
+            if (completionListener != null) {
+
+                completionListener.onCompletion(mp);
+
+            }
+
+        });
+
+        mediaPlayer.setOnErrorListener(
+                (mp, what, extra) -> {
+
+                    prepared = false;
+
+                    if (errorListener != null) {
+
+                        return errorListener.onError(
+                                mp,
+                                what,
+                                extra
+                        );
+
+                    }
+
+                    return true;
+
+                }
+        );
 
         mediaPlayer.prepareAsync();
+
     }
 
     public MediaPlayer getPlayer() {
+
         return mediaPlayer;
+
     }
 
     public void start() {
 
-        if (mediaPlayer != null && !mediaPlayer.isPlaying()) {
-            mediaPlayer.start();
+        if (!prepared
+                || mediaPlayer == null) {
+
+            return;
+
         }
+
+        try {
+
+            if (!mediaPlayer.isPlaying()) {
+
+                mediaPlayer.start();
+
+            }
+
+        } catch (IllegalStateException ignored) {
+
+        }
+
     }
 
     public void pause() {
 
-        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-            mediaPlayer.pause();
+        if (!prepared
+                || mediaPlayer == null) {
+
+            return;
+
         }
+
+        try {
+
+            if (mediaPlayer.isPlaying()) {
+
+                mediaPlayer.pause();
+
+            }
+
+        } catch (IllegalStateException ignored) {
+
+        }
+
     }
 
     public void stop() {
 
-        if (mediaPlayer != null) {
+        if (!prepared
+                || mediaPlayer == null) {
 
-            try {
-                mediaPlayer.stop();
-            } catch (Exception ignored) {
-            }
+            return;
+
         }
+
+        try {
+
+            mediaPlayer.stop();
+
+            prepared = false;
+
+        } catch (IllegalStateException ignored) {
+
+            prepared = false;
+
+        }
+
     }
 
     public void seekTo(int position) {
 
-        if (mediaPlayer != null) {
+        if (!prepared
+                || mediaPlayer == null) {
 
-            try {
-                mediaPlayer.seekTo(position);
-            } catch (Exception ignored) {
-            }
+            return;
+
         }
+
+        try {
+
+            mediaPlayer.seekTo(position);
+
+        } catch (IllegalStateException ignored) {
+
+        }
+
     }
 
     public boolean isPlaying() {
 
-        return mediaPlayer != null && mediaPlayer.isPlaying();
+        if (!prepared
+                || mediaPlayer == null) {
+
+            return false;
+
+        }
+
+        try {
+
+            return mediaPlayer.isPlaying();
+
+        } catch (IllegalStateException ignored) {
+
+            return false;
+
+        }
+
     }
 
     public int getCurrentPosition() {
 
-        if (mediaPlayer == null) {
+        if (!prepared
+                || mediaPlayer == null) {
+
             return 0;
+
         }
 
         try {
+
             return mediaPlayer.getCurrentPosition();
-        } catch (Exception e) {
+
+        } catch (IllegalStateException ignored) {
+
             return 0;
+
         }
+
     }
 
     public int getDuration() {
 
-        if (mediaPlayer == null) {
+        if (!prepared
+                || mediaPlayer == null) {
+
             return 0;
+
         }
 
         try {
+
             return mediaPlayer.getDuration();
-        } catch (Exception e) {
+
+        } catch (IllegalStateException ignored) {
+
             return 0;
+
         }
+
     }
 
     public void release() {
 
-        if (mediaPlayer != null) {
+        prepared = false;
 
-            try {
-
-                if (mediaPlayer.isPlaying()) {
-                    mediaPlayer.stop();
-                }
-
-            } catch (Exception ignored) {
-            }
-
-            try {
-                mediaPlayer.reset();
-            } catch (Exception ignored) {
-            }
-
-            try {
-                mediaPlayer.release();
-            } catch (Exception ignored) {
-            }
-
-            mediaPlayer = null;
+        if (mediaPlayer == null) {
+            return;
         }
+
+        try {
+
+            mediaPlayer.release();
+
+        } catch (Exception ignored) {
+
+        }
+
+        mediaPlayer = null;
+
     }
+
 }
