@@ -24,9 +24,8 @@ public class ShareManager {
 
     public void share(String filePath) {
 
-        File file = new File(filePath);
-
-        if (!file.exists()) {
+        if (filePath == null
+                || filePath.trim().isEmpty()) {
 
             Toast.makeText(
                     activity,
@@ -38,19 +37,38 @@ public class ShareManager {
 
         }
 
-        Uri uri = FileProvider.getUriForFile(
+        File file =
+                new File(filePath);
 
-                activity,
+        if (!file.exists()
+                || !file.isFile()) {
 
-                activity.getPackageName() + ".provider",
+            Toast.makeText(
+                    activity,
+                    R.string.file_not_found,
+                    Toast.LENGTH_SHORT
+            ).show();
 
-                file
+            return;
 
+        }
+
+        Uri uri =
+                FileProvider.getUriForFile(
+                        activity,
+                        activity.getPackageName()
+                                + ".provider",
+                        file
+                );
+
+        Intent intent =
+                new Intent(
+                        Intent.ACTION_SEND
+                );
+
+        intent.setType(
+                "audio/mp4"
         );
-
-        Intent intent = new Intent(Intent.ACTION_SEND);
-
-        intent.setType("audio/mp4");
 
         intent.putExtra(
                 Intent.EXTRA_STREAM,
@@ -67,7 +85,9 @@ public class ShareManager {
 
                     Intent.createChooser(
                             intent,
-                            activity.getString(R.string.share_record)
+                            activity.getString(
+                                    R.string.share_record
+                            )
                     )
 
             );

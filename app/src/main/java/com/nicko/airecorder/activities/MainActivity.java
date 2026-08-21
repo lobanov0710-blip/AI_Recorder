@@ -451,13 +451,34 @@ public class MainActivity extends AppCompatActivity {
         );
 
     }
-    private void showDeleteDialog(RecordItem item) {
+    private void showDeleteDialog(
+            RecordItem item
+    ) {
 
         dialogManager.showDeleteDialog(() -> {
 
+            String filePath =
+                    item.getFilePath();
+
+            /*
+             * Если запись в БД повреждена
+             * и физический путь отсутствует,
+             * удалить хотя бы некорректную строку БД.
+             */
+            if (filePath == null
+                    || filePath.trim().isEmpty()) {
+
+                viewModel.delete(
+                        item.getId()
+                );
+
+                return;
+
+            }
+
             java.io.File file =
                     new java.io.File(
-                            item.getFilePath()
+                            filePath
                     );
 
             if (file.exists()
