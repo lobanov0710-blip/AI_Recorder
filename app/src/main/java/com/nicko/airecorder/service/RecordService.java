@@ -234,13 +234,28 @@ public class RecordService extends Service {
             long duration =
                     recordTimer.getDuration();
 
-            boolean success =
+            boolean stopSuccess =
                     controller.stopRecording();
 
-            if (success) {
+            boolean saveSuccess =
+                    controller.saveRecord(
+                            duration
+                    );
 
-                controller.saveRecord(
-                        duration
+            if (!stopSuccess) {
+
+                Log.w(
+                        TAG,
+                        "MediaRecorder.stop() завершился с ошибкой"
+                );
+
+            }
+
+            if (!saveSuccess) {
+
+                Log.e(
+                        TAG,
+                        "Запись не удалось сохранить"
                 );
 
             }

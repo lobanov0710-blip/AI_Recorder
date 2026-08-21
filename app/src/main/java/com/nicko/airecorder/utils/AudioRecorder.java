@@ -163,7 +163,8 @@ public class AudioRecorder {
 
     public boolean stopRecording() {
 
-        if (!recording) {
+        if (!recording
+                || recorder == null) {
 
             releaseRecorder();
 
@@ -186,18 +187,22 @@ public class AudioRecorder {
                     e
             );
 
-            if (outputFile != null && outputFile.exists()) {
-
-                //noinspection ResultOfMethodCallIgnored
-                outputFile.delete();
-
-            }
+            /*
+             * Файл здесь НЕ удаляем.
+             *
+             * AudioRecorder отвечает только
+             * за работу с MediaRecorder.
+             *
+             * Проверку итогового файла
+             * выполняет RecordServiceController.
+             */
 
         } finally {
 
             releaseRecorder();
 
         }
+
         return success;
     }
     private void releaseRecorder() {
