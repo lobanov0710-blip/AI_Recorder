@@ -5,6 +5,7 @@
 
     <!-- Recording -->
     <string name="record_start">Начать запись</string>
+    <string name="record_stop">Остановить запись</string>
     <string name="record_pause">Пауза</string>
     <string name="record_resume">Продолжить</string>
     <string name="record_preparing">Подготовка записи...</string>
@@ -21,26 +22,32 @@
     <string name="delete_title">Удаление записи</string>
     <string name="delete_message">Удалить эту запись?</string>
     <string name="delete_confirm">Удалить</string>
+    <string name="delete_button">Удалить</string>
     <string name="delete_error">Не удалось удалить файл</string>
 
     <!-- Sharing -->
     <string name="file_not_found">Файл не найден</string>
     <string name="share_record">Поделиться записью</string>
+    <string name="share_button">Поделиться</string>
     <string name="share_app_not_found">Не найдено приложение для отправки</string>
 
     <!-- Permissions -->
     <string name="microphone_permission_required">Для записи необходимо разрешение на использование микрофона</string>
 
-    <!-- Player / Recording UI -->
+    <!-- Recording UI -->
     <string name="recording_indicator">🔴 %1$s</string>
+    <string name="time_zero">00:00</string>
 
     <!-- Notification -->
     <string name="notification_channel_name">Recording</string>
     <string name="notification_title">Диктофон</string>
 
     <!-- Player -->
+    <string name="player_default_title">Запись</string>
     <string name="player_play">▶</string>
     <string name="player_pause">⏸</string>
+    <string name="player_play_initial">▶ Воспроизвести</string>
+    <string name="player_initial_time">00:00 / 00:00</string>
     <string name="playback_error">Ошибка воспроизведения</string>
     <string name="player_time_format">%1$02d:%2$02d / %3$02d:%4$02d</string>
 

@@ -19,8 +19,8 @@
             android:id="@+id/txtFileName"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:maxLines="1"
             android:ellipsize="end"
+            android:maxLines="1"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -36,7 +36,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:text="00:00"
+            android:text="@string/time_zero"
             android:textSize="12sp" />
 
     </LinearLayout>
@@ -50,7 +50,7 @@
             android:id="@+id/btnShare"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Поделиться"
+            android:text="@string/share_button"
             android:textAllCaps="false" />
 
         <Button
@@ -58,7 +58,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="Удалить"
+            android:text="@string/delete_button"
             android:textAllCaps="false" />
 
     </LinearLayout>
