@@ -1,7 +1,7 @@
 [versions]
 recyclerview = "1.4.0"
 room = "2.7.2"
-agp = "9.3.1"
+agp = "9.3.2"
 junit = "4.13.2"
 junitVersion = "1.1.5"
 espressoCore = "3.7.0"
