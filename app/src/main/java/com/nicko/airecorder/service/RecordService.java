@@ -246,7 +246,7 @@ public class RecordService extends Service {
 
                 Log.w(
                         TAG,
-                        "MediaRecorder.stop() завершился с ошибкой"
+                        "Остановка аудиозаписи завершилась с ошибкой"
                 );
 
             }
