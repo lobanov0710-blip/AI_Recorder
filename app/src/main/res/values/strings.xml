@@ -39,7 +39,7 @@
     <string name="time_zero">00:00</string>
 
     <!-- Notification -->
-    <string name="notification_channel_name">Recording</string>
+    <string name="notification_channel_name">Запись аудио</string>
     <string name="notification_title">Диктофон</string>
 
     <!-- Player -->
