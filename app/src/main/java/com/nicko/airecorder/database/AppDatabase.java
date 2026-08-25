@@ -15,11 +15,16 @@ import androidx.room.RoomDatabase;
 )
 public abstract class AppDatabase extends RoomDatabase {
 
+    private static final String DATABASE_NAME =
+            "records_db";
+
     private static volatile AppDatabase instance;
 
     public abstract RecordDao recordDao();
 
-    public static AppDatabase getInstance(Context context) {
+    public static AppDatabase getInstance(
+            Context context
+    ) {
 
         if (instance == null) {
 
@@ -27,19 +32,13 @@ public abstract class AppDatabase extends RoomDatabase {
 
                 if (instance == null) {
 
-                    instance = Room.databaseBuilder(
-
-                                    context.getApplicationContext(),
-
-                                    AppDatabase.class,
-
-                                    "records_db"
-
-                            )
-
-                            .fallbackToDestructiveMigration()
-
-                            .build();
+                    instance =
+                            Room.databaseBuilder(
+                                            context.getApplicationContext(),
+                                            AppDatabase.class,
+                                            DATABASE_NAME
+                                    )
+                                    .build();
 
                 }
 
@@ -48,7 +47,5 @@ public abstract class AppDatabase extends RoomDatabase {
         }
 
         return instance;
-
     }
-
 }
