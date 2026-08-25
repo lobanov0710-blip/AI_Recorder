@@ -106,7 +106,6 @@
                 android:textColor="@color/ai_text_primary"
                 android:textSize="38sp"
                 android:textStyle="bold"
-                android:letterSpacing="0.02"
                 android:visibility="gone" />
 
             <!-- Waveform -->
