@@ -38,15 +38,8 @@ android {
 
     buildTypes {
         release {
-
-            /*
-             * Пока оставляем выключенным.
-             *
-             * R8 включим отдельным этапом,
-             * после проверки release-сборки.
-             */
             optimization {
-                enable = false
+                enable = true
             }
         }
     }
