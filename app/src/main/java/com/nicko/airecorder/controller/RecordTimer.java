@@ -45,51 +45,65 @@ public class RecordTimer {
 
         stop();
 
-        activeDurationMs = 0L;
+        activeDurationMs =
+                0L;
 
         segmentStartTime =
                 SystemClock.elapsedRealtime();
 
-        running = true;
+        running =
+                true;
 
-        paused = false;
+        paused =
+                false;
 
-        runnable = new Runnable() {
+        runnable =
+                new Runnable() {
 
-            @Override
-            public void run() {
+                    @Override
+                    public void run() {
 
-                if (!running || paused) {
-                    return;
-                }
+                        if (!running
+                                || paused) {
 
-                callback.onTimeChanged(
-                        getDuration()
-                );
+                            return;
+                        }
 
-                int amplitude =
-                        callback.getAmplitude();
+                        callback.onTimeChanged(
+                                getDuration()
+                        );
 
-                amplitude = Math.min(
-                        amplitude / 327,
-                        100
-                );
+                        int amplitude =
+                                callback.getAmplitude();
 
-                callback.onAmplitudeChanged(
-                        amplitude
-                );
+                        /*
+                         * AudioRecorder уже возвращает
+                         * нормализованный RMS/dB уровень
+                         * в диапазоне 0...100.
+                         */
+                        amplitude =
+                                Math.max(
+                                        0,
+                                        Math.min(
+                                                100,
+                                                amplitude
+                                        )
+                                );
 
-                handler.postDelayed(
-                        this,
-                        UPDATE_INTERVAL_MS
-                );
+                        callback.onAmplitudeChanged(
+                                amplitude
+                        );
 
-            }
+                        handler.postDelayed(
+                                this,
+                                UPDATE_INTERVAL_MS
+                        );
+                    }
+                };
 
-        };
-
-        handler.post(runnable);
-
+        handler.post(
+                runnable
+        );
     }
 
     public void pause() {

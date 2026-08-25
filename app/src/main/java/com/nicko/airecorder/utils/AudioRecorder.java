@@ -1,42 +1,151 @@
 package com.nicko.airecorder.utils;
 
+import android.annotation.SuppressLint;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
+import android.media.MediaFormat;
+import android.media.MediaMuxer;
 import android.media.MediaRecorder;
+import android.os.Process;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class AudioRecorder {
 
     private static final String TAG =
             "AudioRecorder";
 
-    private static final int COPY_BUFFER_SIZE =
-            64 * 1024;
+    private static final int SAMPLE_RATE =
+            44100;
 
-    private final List<File> segmentFiles =
-            new ArrayList<>();
+    private static final int CHANNEL_COUNT =
+            1;
 
-    private final AudioSegmentMerger segmentMerger =
-            new AudioSegmentMerger();
+    private static final int CHANNEL_CONFIG =
+            AudioFormat.CHANNEL_IN_MONO;
 
-    private MediaRecorder recorder;
+    private static final int PCM_ENCODING =
+            AudioFormat.ENCODING_PCM_16BIT;
+
+    private static final int PCM_BYTES_PER_SAMPLE =
+            2;
+
+    private static final int PCM_BUFFER_SAMPLES =
+            1024;
+
+    private static final int AAC_BIT_RATE =
+            128000;
+
+    private static final long MICROSECONDS_PER_SECOND =
+            1_000_000L;
+
+    /*
+     * Encoder находится в отдельном потоке,
+     * поэтому ему разрешено немного ждать
+     * свободный input buffer.
+     */
+    private static final long CODEC_INPUT_TIMEOUT_US =
+            10_000L;
+
+    /*
+     * Во время обычного drain ничего не ждём.
+     */
+    private static final long CODEC_POLL_TIMEOUT_US =
+            0L;
+
+    /*
+     * При EOS можно ждать output.
+     */
+    private static final long CODEC_EOS_TIMEOUT_US =
+            10_000L;
+
+    private static final int MAX_EOS_WAIT_COUNT =
+            300;
+
+    private static final long CAPTURE_JOIN_TIMEOUT_MS =
+            3000L;
+
+    private static final long ENCODER_JOIN_TIMEOUT_MS =
+            10000L;
+
+    private static final PcmChunk END_CHUNK =
+            new PcmChunk(
+                    null,
+                    0,
+                    true
+            );
+
+    private final Object lifecycleLock =
+            new Object();
+
+    /*
+     * Producer → Consumer.
+     *
+     * Capture thread никогда не ждёт MediaCodec.
+     */
+    private final LinkedBlockingQueue<PcmChunk> pcmQueue =
+            new LinkedBlockingQueue<>();
+
+    private volatile boolean recording =
+            false;
+
+    private volatile boolean paused =
+            false;
+
+    private volatile boolean stopRequested =
+            false;
+
+    private volatile boolean captureSuccess =
+            false;
+
+    private volatile boolean encoderSuccess =
+            false;
+
+    private volatile int maxAmplitude =
+            0;
+
+    private volatile Thread captureThread;
+
+    private volatile Thread encoderThread;
+
+    private volatile AudioRecord audioRecord;
+
+    private MediaCodec encoder;
+
+    private MediaMuxer muxer;
+
+    private boolean muxerStarted =
+            false;
+
+    private int muxerTrackIndex =
+            -1;
 
     private File outputFile;
 
-    private File currentSegmentFile;
+    /*
+     * Количество PCM samples,
+     * действительно переданных encoder.
+     *
+     * Pause сюда не входит.
+     */
+    private long totalPcmSamples =
+            0L;
 
-    private boolean recording = false;
+    private long firstEncoderPresentationTimeUs =
+            Long.MIN_VALUE;
 
-    private boolean paused = false;
-
-    private int segmentIndex = 0;
+    private long lastMuxerPresentationTimeUs =
+            -1L;
 
     public AudioRecorder() {
     }
@@ -45,30 +154,1180 @@ public class AudioRecorder {
             @NonNull File outputFile
     ) throws IOException {
 
-        if (recording) {
+        synchronized (lifecycleLock) {
+
+            if (recording) {
+                return;
+            }
+
+            if (isThreadAlive(captureThread)
+                    || isThreadAlive(encoderThread)) {
+
+                throw new IllegalStateException(
+                        "Предыдущая запись ещё завершается"
+                );
+            }
+
+            this.outputFile =
+                    outputFile;
+
+            prepareOutputFile(
+                    outputFile
+            );
+
+            resetSessionState();
+
+            try {
+
+                prepareAudioRecord();
+
+                prepareEncoder();
+
+                prepareMuxer();
+
+                AudioRecord localAudioRecord =
+                        audioRecord;
+
+                if (localAudioRecord == null) {
+
+                    throw new IOException(
+                            "AudioRecord не создан"
+                    );
+                }
+
+                localAudioRecord.startRecording();
+
+                if (localAudioRecord.getRecordingState()
+                        != AudioRecord.RECORDSTATE_RECORDING) {
+
+                    throw new IOException(
+                            "AudioRecord не перешёл в RECORDING"
+                    );
+                }
+
+                /*
+                 * Encoder thread запускаем первым:
+                 * он будет ждать первый PCM chunk.
+                 */
+                Thread newEncoderThread =
+                        new Thread(
+                                this::encoderLoop,
+                                "AIRecorder-Encoder"
+                        );
+
+                Thread newCaptureThread =
+                        new Thread(
+                                this::captureLoop,
+                                "AIRecorder-Capture"
+                        );
+
+                encoderThread =
+                        newEncoderThread;
+
+                captureThread =
+                        newCaptureThread;
+
+                recording =
+                        true;
+
+                newEncoderThread.start();
+
+                newCaptureThread.start();
+
+            } catch (IOException
+                     | RuntimeException e) {
+
+                recording =
+                        false;
+
+                paused =
+                        false;
+
+                stopRequested =
+                        true;
+
+                pcmQueue.offer(
+                        END_CHUNK
+                );
+
+                cleanupAfterStartFailure();
+
+                deleteOutputFileQuietly();
+
+                throw e;
+            }
+        }
+    }
+
+    public boolean pauseRecording() {
+
+        if (!recording
+                || paused
+                || stopRequested) {
+
+            return false;
+        }
+
+        /*
+         * AudioRecord НЕ останавливаем.
+         *
+         * Capture thread продолжает читать
+         * hardware buffer и выбрасывает PCM.
+         */
+        paused =
+                true;
+
+        maxAmplitude =
+                0;
+
+        Log.d(
+                TAG,
+                "Pause включён"
+        );
+
+        return true;
+    }
+
+    public boolean resumeRecording() {
+
+        if (!recording
+                || !paused
+                || stopRequested) {
+
+            return false;
+        }
+
+        /*
+         * Никакого restart/resume устройства.
+         *
+         * Просто снова разрешаем
+         * помещать PCM в очередь.
+         */
+        paused =
+                false;
+
+        Log.d(
+                TAG,
+                "Resume выполнен"
+        );
+
+        return true;
+    }
+
+    public boolean stopRecording() {
+
+        Thread localCaptureThread;
+
+        Thread localEncoderThread;
+
+        synchronized (lifecycleLock) {
+
+            if (!recording
+                    && captureThread == null
+                    && encoderThread == null) {
+
+                return false;
+            }
+
+            stopRequested =
+                    true;
+
+            paused =
+                    false;
+
+            localCaptureThread =
+                    captureThread;
+
+            localEncoderThread =
+                    encoderThread;
+        }
+
+        /*
+         * Прерываем blocking AudioRecord.read().
+         *
+         * Capture thread затем положит END_CHUNK.
+         */
+        requestAudioRecordStop();
+
+        joinThread(
+                localCaptureThread,
+                CAPTURE_JOIN_TIMEOUT_MS,
+                "capture"
+        );
+
+        /*
+         * Encoder обязан обработать ВСЮ очередь,
+         * которая была накоплена до Stop,
+         * и только затем встретит END_CHUNK.
+         */
+        joinThread(
+                localEncoderThread,
+                ENCODER_JOIN_TIMEOUT_MS,
+                "encoder"
+        );
+
+        boolean threadsFinished =
+                !isThreadAlive(
+                        localCaptureThread
+                )
+                        && !isThreadAlive(
+                        localEncoderThread
+                );
+
+        boolean fileValid =
+                outputFile != null
+                        && outputFile.exists()
+                        && outputFile.isFile()
+                        && outputFile.length() > 0L;
+
+        boolean success =
+                threadsFinished
+                        && captureSuccess
+                        && encoderSuccess
+                        && fileValid;
+
+        synchronized (lifecycleLock) {
+
+            recording =
+                    false;
+
+            paused =
+                    false;
+
+            maxAmplitude =
+                    0;
+
+            captureThread =
+                    null;
+
+            encoderThread =
+                    null;
+        }
+
+        if (!success) {
+
+            Log.e(
+                    TAG,
+                    "Финализация записи завершилась с ошибкой"
+            );
+
+            deleteOutputFileQuietly();
+        }
+
+        return success;
+    }
+
+    /*
+     * PRODUCER
+     *
+     * Единственная задача этого потока:
+     *
+     * microphone → PCM → queue
+     *
+     * MediaCodec здесь вообще не используется.
+     */
+    private void captureLoop() {
+
+        boolean success =
+                false;
+
+        try {
+
+            Process.setThreadPriority(
+                    Process.THREAD_PRIORITY_AUDIO
+            );
+
+            short[] pcmBuffer =
+                    new short[
+                            PCM_BUFFER_SAMPLES
+                            ];
+
+            while (!stopRequested) {
+
+                AudioRecord localAudioRecord =
+                        audioRecord;
+
+                if (localAudioRecord == null) {
+
+                    throw new IOException(
+                            "AudioRecord отсутствует"
+                    );
+                }
+
+                int readSamples =
+                        localAudioRecord.read(
+                                pcmBuffer,
+                                0,
+                                pcmBuffer.length,
+                                AudioRecord.READ_BLOCKING
+                        );
+
+                if (readSamples > 0) {
+
+                    /*
+                     * Проверяем Pause ПОСЛЕ read.
+                     *
+                     * Таким образом hardware buffer
+                     * микрофона обслуживается постоянно.
+                     */
+                    if (paused) {
+
+                        maxAmplitude =
+                                0;
+
+                        continue;
+                    }
+
+                    updateAmplitude(
+                            pcmBuffer,
+                            readSamples
+                    );
+
+                    short[] copy =
+                            Arrays.copyOf(
+                                    pcmBuffer,
+                                    readSamples
+                            );
+
+                    pcmQueue.put(
+                            new PcmChunk(
+                                    copy,
+                                    readSamples,
+                                    false
+                            )
+                    );
+
+                    continue;
+                }
+
+                if (stopRequested) {
+
+                    break;
+                }
+
+                if (readSamples == 0) {
+
+                    continue;
+                }
+
+                throw new IOException(
+                        "AudioRecord.read() вернул ошибку: "
+                                + readSamples
+                );
+            }
+
+            success =
+                    true;
+
+        } catch (InterruptedException e) {
+
+            Thread.currentThread()
+                    .interrupt();
+
+            /*
+             * Если Stop уже был запрошен,
+             * interruption не считаем аварией.
+             */
+            success =
+                    stopRequested;
+
+            if (!stopRequested) {
+
+                Log.e(
+                        TAG,
+                        "Capture thread прерван",
+                        e
+                );
+            }
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Ошибка capture pipeline",
+                    e
+            );
+
+            success =
+                    false;
+
+        } finally {
+
+            captureSuccess =
+                    success;
+
+            stopAndReleaseAudioRecord();
+
+            /*
+             * END всегда идёт ПОСЛЕ всех PCM chunks.
+             *
+             * Поэтому encoder обработает очередь
+             * полностью перед EOS.
+             */
+            pcmQueue.offer(
+                    END_CHUNK
+            );
+
+            if (!success) {
+
+                stopRequested =
+                        true;
+            }
+
+            Log.d(
+                    TAG,
+                    "Capture завершён. success="
+                            + captureSuccess
+                            + ", queue="
+                            + pcmQueue.size()
+            );
+        }
+    }
+
+    /*
+     * CONSUMER
+     *
+     * Этот поток может ждать MediaCodec сколько нужно.
+     *
+     * Захват микрофона от этого больше
+     * НЕ останавливается.
+     */
+    private void encoderLoop() {
+
+        boolean pipelineSuccess =
+                false;
+
+        try {
+
+            while (true) {
+
+                PcmChunk chunk =
+                        pcmQueue.take();
+
+                if (chunk.endOfStream) {
+
+                    break;
+                }
+
+                if (chunk.data == null
+                        || chunk.sampleCount <= 0) {
+
+                    continue;
+                }
+
+                queuePcmToEncoder(
+                        chunk.data,
+                        chunk.sampleCount
+                );
+            }
+
+            if (totalPcmSamples <= 0L) {
+
+                throw new IOException(
+                        "Запись не содержит PCM"
+                );
+            }
+
+            queueEndOfStream();
+
+            drainEncoder(
+                    true
+            );
+
+            writeMuxerEndMarker();
+
+            pipelineSuccess =
+                    muxerStarted
+                            && muxerTrackIndex >= 0;
+
+        } catch (InterruptedException e) {
+
+            Thread.currentThread()
+                    .interrupt();
+
+            Log.e(
+                    TAG,
+                    "Encoder thread прерван",
+                    e
+            );
+
+            pipelineSuccess =
+                    false;
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Ошибка encoder pipeline",
+                    e
+            );
+
+            pipelineSuccess =
+                    false;
+
+        } finally {
+
+            /*
+             * Если encoder упал раньше времени,
+             * прекращаем capture.
+             */
+            if (!pipelineSuccess) {
+
+                stopRequested =
+                        true;
+
+                requestAudioRecordStop();
+            }
+
+            releaseEncoder();
+
+            boolean muxerSuccess =
+                    stopAndReleaseMuxer();
+
+            boolean fileValid =
+                    outputFile != null
+                            && outputFile.exists()
+                            && outputFile.isFile()
+                            && outputFile.length() > 0L;
+
+            encoderSuccess =
+                    pipelineSuccess
+                            && muxerSuccess
+                            && fileValid;
+
+            if (!encoderSuccess) {
+
+                deleteOutputFileQuietly();
+            }
+
+            Log.d(
+                    TAG,
+                    "Encoder завершён. success="
+                            + encoderSuccess
+                            + ", pcmSamples="
+                            + totalPcmSamples
+                            + ", durationUs="
+                            + samplesToTimeUs(
+                            totalPcmSamples
+                    )
+            );
+        }
+    }
+
+    private void queuePcmToEncoder(
+            short[] pcm,
+            int sampleCount
+    ) throws IOException {
+
+        MediaCodec localEncoder =
+                encoder;
+
+        if (localEncoder == null) {
+
+            throw new IOException(
+                    "AAC encoder отсутствует"
+            );
+        }
+
+        int sourceOffset =
+                0;
+
+        while (sourceOffset
+                < sampleCount) {
+
+            int inputIndex =
+                    localEncoder.dequeueInputBuffer(
+                            CODEC_INPUT_TIMEOUT_US
+                    );
+
+            if (inputIndex
+                    == MediaCodec.INFO_TRY_AGAIN_LATER) {
+
+                drainEncoder(
+                        false
+                );
+
+                continue;
+            }
+
+            if (inputIndex < 0) {
+
+                drainEncoder(
+                        false
+                );
+
+                continue;
+            }
+
+            ByteBuffer inputBuffer =
+                    localEncoder.getInputBuffer(
+                            inputIndex
+                    );
+
+            if (inputBuffer == null) {
+
+                throw new IOException(
+                        "AAC input buffer = null"
+                );
+            }
+
+            inputBuffer.clear();
+
+            inputBuffer.order(
+                    ByteOrder.nativeOrder()
+            );
+
+            int capacitySamples =
+                    inputBuffer.remaining()
+                            / PCM_BYTES_PER_SAMPLE;
+
+            if (capacitySamples <= 0) {
+
+                throw new IOException(
+                        "AAC input buffer слишком мал"
+                );
+            }
+
+            int chunkSamples =
+                    Math.min(
+                            capacitySamples,
+                            sampleCount
+                                    - sourceOffset
+                    );
+
+            for (int i = 0;
+                 i < chunkSamples;
+                 i++) {
+
+                inputBuffer.putShort(
+                        pcm[
+                                sourceOffset
+                                        + i
+                                ]
+                );
+            }
+
+            long presentationTimeUs =
+                    samplesToTimeUs(
+                            totalPcmSamples
+                    );
+
+            localEncoder.queueInputBuffer(
+                    inputIndex,
+                    0,
+                    chunkSamples
+                            * PCM_BYTES_PER_SAMPLE,
+                    presentationTimeUs,
+                    0
+            );
+
+            totalPcmSamples +=
+                    chunkSamples;
+
+            sourceOffset +=
+                    chunkSamples;
+
+            drainEncoder(
+                    false
+            );
+        }
+    }
+
+    private void queueEndOfStream()
+            throws IOException {
+
+        MediaCodec localEncoder =
+                encoder;
+
+        if (localEncoder == null) {
+
+            throw new IOException(
+                    "AAC encoder отсутствует"
+            );
+        }
+
+        int waitCount =
+                0;
+
+        while (true) {
+
+            int inputIndex =
+                    localEncoder.dequeueInputBuffer(
+                            CODEC_INPUT_TIMEOUT_US
+                    );
+
+            if (inputIndex >= 0) {
+
+                localEncoder.queueInputBuffer(
+                        inputIndex,
+                        0,
+                        0,
+                        samplesToTimeUs(
+                                totalPcmSamples
+                        ),
+                        MediaCodec
+                                .BUFFER_FLAG_END_OF_STREAM
+                );
+
+                return;
+            }
+
+            drainEncoder(
+                    false
+            );
+
+            waitCount++;
+
+            if (waitCount
+                    > MAX_EOS_WAIT_COUNT) {
+
+                throw new IOException(
+                        "Timeout AAC EOS input"
+                );
+            }
+        }
+    }
+
+    private void drainEncoder(
+            boolean waitForEndOfStream
+    ) throws IOException {
+
+        MediaCodec localEncoder =
+                encoder;
+
+        if (localEncoder == null) {
+
+            throw new IOException(
+                    "AAC encoder отсутствует"
+            );
+        }
+
+        MediaCodec.BufferInfo bufferInfo =
+                new MediaCodec.BufferInfo();
+
+        int waitCount =
+                0;
+
+        while (true) {
+
+            long timeoutUs =
+                    waitForEndOfStream
+                            ? CODEC_EOS_TIMEOUT_US
+                            : CODEC_POLL_TIMEOUT_US;
+
+            int outputIndex =
+                    localEncoder.dequeueOutputBuffer(
+                            bufferInfo,
+                            timeoutUs
+                    );
+
+            if (outputIndex
+                    == MediaCodec.INFO_TRY_AGAIN_LATER) {
+
+                if (!waitForEndOfStream) {
+                    return;
+                }
+
+                waitCount++;
+
+                if (waitCount
+                        > MAX_EOS_WAIT_COUNT) {
+
+                    throw new IOException(
+                            "Timeout AAC EOS output"
+                    );
+                }
+
+                continue;
+            }
+
+            waitCount =
+                    0;
+
+            if (outputIndex
+                    == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+
+                if (muxerStarted) {
+
+                    throw new IOException(
+                            "AAC format изменился повторно"
+                    );
+                }
+
+                MediaMuxer localMuxer =
+                        muxer;
+
+                if (localMuxer == null) {
+
+                    throw new IOException(
+                            "MediaMuxer отсутствует"
+                    );
+                }
+
+                MediaFormat outputFormat =
+                        localEncoder.getOutputFormat();
+
+                muxerTrackIndex =
+                        localMuxer.addTrack(
+                                outputFormat
+                        );
+
+                localMuxer.start();
+
+                muxerStarted =
+                        true;
+
+                Log.d(
+                        TAG,
+                        "MediaMuxer started"
+                );
+
+                continue;
+            }
+
+            if (outputIndex < 0) {
+                continue;
+            }
+
+            ByteBuffer encodedBuffer =
+                    localEncoder.getOutputBuffer(
+                            outputIndex
+                    );
+
+            if (encodedBuffer == null) {
+
+                localEncoder.releaseOutputBuffer(
+                        outputIndex,
+                        false
+                );
+
+                throw new IOException(
+                        "AAC output buffer = null"
+                );
+            }
+
+            boolean endOfStream =
+                    (bufferInfo.flags
+                            & MediaCodec
+                            .BUFFER_FLAG_END_OF_STREAM)
+                            != 0;
+
+            if ((bufferInfo.flags
+                    & MediaCodec
+                    .BUFFER_FLAG_CODEC_CONFIG)
+                    != 0) {
+
+                bufferInfo.size =
+                        0;
+            }
+
+            if (bufferInfo.size > 0) {
+
+                if (!muxerStarted
+                        || muxerTrackIndex < 0) {
+
+                    localEncoder.releaseOutputBuffer(
+                            outputIndex,
+                            false
+                    );
+
+                    throw new IOException(
+                            "AAC sample получен до старта muxer"
+                    );
+                }
+
+                if (firstEncoderPresentationTimeUs
+                        == Long.MIN_VALUE) {
+
+                    firstEncoderPresentationTimeUs =
+                            bufferInfo.presentationTimeUs;
+                }
+
+                long normalizedTimeUs =
+                        bufferInfo.presentationTimeUs
+                                - firstEncoderPresentationTimeUs;
+
+                if (normalizedTimeUs < 0L) {
+
+                    normalizedTimeUs =
+                            0L;
+                }
+
+                if (lastMuxerPresentationTimeUs
+                        >= 0L
+                        && normalizedTimeUs
+                        <= lastMuxerPresentationTimeUs) {
+
+                    normalizedTimeUs =
+                            lastMuxerPresentationTimeUs
+                                    + 1L;
+                }
+
+                bufferInfo.presentationTimeUs =
+                        normalizedTimeUs;
+
+                encodedBuffer.position(
+                        bufferInfo.offset
+                );
+
+                encodedBuffer.limit(
+                        bufferInfo.offset
+                                + bufferInfo.size
+                );
+
+                MediaMuxer localMuxer =
+                        muxer;
+
+                if (localMuxer == null) {
+
+                    localEncoder.releaseOutputBuffer(
+                            outputIndex,
+                            false
+                    );
+
+                    throw new IOException(
+                            "MediaMuxer отсутствует"
+                    );
+                }
+
+                localMuxer.writeSampleData(
+                        muxerTrackIndex,
+                        encodedBuffer,
+                        bufferInfo
+                );
+
+                lastMuxerPresentationTimeUs =
+                        normalizedTimeUs;
+            }
+
+            localEncoder.releaseOutputBuffer(
+                    outputIndex,
+                    false
+            );
+
+            if (endOfStream) {
+                return;
+            }
+        }
+    }
+
+    private void writeMuxerEndMarker()
+            throws IOException {
+
+        if (!muxerStarted
+                || muxerTrackIndex < 0
+                || lastMuxerPresentationTimeUs < 0L) {
+
+            throw new IOException(
+                    "MediaMuxer не содержит AAC"
+            );
+        }
+
+        MediaMuxer localMuxer =
+                muxer;
+
+        if (localMuxer == null) {
+
+            throw new IOException(
+                    "MediaMuxer отсутствует"
+            );
+        }
+
+        long expectedDurationUs =
+                samplesToTimeUs(
+                        totalPcmSamples
+                );
+
+        long endTimeUs =
+                Math.max(
+                        expectedDurationUs,
+                        lastMuxerPresentationTimeUs
+                                + 1L
+                );
+
+        ByteBuffer emptyBuffer =
+                ByteBuffer.allocate(1);
+
+        MediaCodec.BufferInfo endInfo =
+                new MediaCodec.BufferInfo();
+
+        endInfo.set(
+                0,
+                0,
+                endTimeUs,
+                MediaCodec
+                        .BUFFER_FLAG_END_OF_STREAM
+        );
+
+        localMuxer.writeSampleData(
+                muxerTrackIndex,
+                emptyBuffer,
+                endInfo
+        );
+
+        Log.d(
+                TAG,
+                "Финальная PCM-длительность: "
+                        + expectedDurationUs
+                        + " us"
+        );
+    }
+
+    private long samplesToTimeUs(
+            long pcmSamples
+    ) {
+
+        if (pcmSamples <= 0L) {
+            return 0L;
+        }
+
+        return pcmSamples
+                * MICROSECONDS_PER_SECOND
+                / SAMPLE_RATE;
+    }
+
+    private void updateAmplitude(
+            short[] pcm,
+            int sampleCount
+    ) {
+
+        if (pcm == null
+                || sampleCount <= 0) {
+
+            maxAmplitude = 0;
+
             return;
         }
 
-        releaseRecorderOnly();
+        double sumSquares =
+                0.0;
 
-        deleteTemporarySegments();
+        for (int i = 0;
+             i < sampleCount;
+             i++) {
 
-        this.outputFile =
-                outputFile;
+            double normalized =
+                    pcm[i] / 32768.0;
 
-        segmentIndex = 0;
+            sumSquares +=
+                    normalized
+                            * normalized;
+        }
 
-        recording = false;
+        double rms =
+                Math.sqrt(
+                        sumSquares
+                                / sampleCount
+                );
 
-        paused = false;
+        int targetLevel =
+                rmsToLevel(
+                        rms
+                );
+
+        int currentLevel =
+                maxAmplitude;
+
+        /*
+         * Attack / Release envelope.
+         *
+         * Рост громкости отображаем быстро,
+         * спад — немного плавнее.
+         */
+        float smoothing;
+
+        if (targetLevel > currentLevel) {
+
+            smoothing =
+                    0.65f;
+
+        } else {
+
+            smoothing =
+                    0.20f;
+        }
+
+        int smoothedLevel =
+                Math.round(
+                        currentLevel
+                                + (
+                                targetLevel
+                                        - currentLevel
+                        )
+                                * smoothing
+                );
+
+        maxAmplitude =
+                Math.max(
+                        0,
+                        Math.min(
+                                100,
+                                smoothedLevel
+                        )
+                );
+    }
+
+    private int rmsToLevel(
+            double rms
+    ) {
+
+        /*
+         * Нижняя граница визуализатора.
+         *
+         * Всё тише -60 dB считаем
+         * практически тишиной.
+         */
+        final double minDb =
+                -60.0;
+
+        if (rms <= 0.0) {
+            return 0;
+        }
+
+        double db =
+                20.0
+                        * Math.log10(
+                        rms
+                );
+
+        if (db <= minDb) {
+            return 0;
+        }
+
+        if (db >= 0.0) {
+            return 100;
+        }
+
+        double normalized =
+                (db - minDb)
+                        / -minDb;
+
+        int level =
+                (int) Math.round(
+                        normalized
+                                * 100.0
+                );
+
+        return Math.max(
+                0,
+                Math.min(
+                        100,
+                        level
+                )
+        );
+    }
+
+    private void prepareOutputFile(
+            File file
+    ) throws IOException {
 
         File parent =
-                outputFile.getParentFile();
+                file.getParentFile();
 
         if (parent == null) {
 
             throw new IOException(
-                    "Не удалось определить папку записи"
+                    "Папка записи отсутствует"
             );
         }
 
@@ -80,580 +1339,433 @@ public class AudioRecorder {
             );
         }
 
-        if (outputFile.exists()
-                && !outputFile.delete()) {
+        if (file.exists()
+                && !file.delete()) {
 
             throw new IOException(
-                    "Не удалось удалить старый итоговый файл"
+                    "Не удалось удалить старый файл"
             );
-        }
-
-        try {
-
-            startNewSegment();
-
-            recording = true;
-
-        } catch (IOException | RuntimeException e) {
-
-            recording = false;
-
-            paused = false;
-
-            releaseRecorderOnly();
-
-            deleteTemporarySegments();
-
-            throw e;
         }
     }
 
-    public boolean pauseRecording() {
+    @SuppressLint("MissingPermission")
+    private void prepareAudioRecord()
+            throws IOException {
 
-        if (!recording
-                || paused
-                || recorder == null) {
+        int minBufferSize =
+                AudioRecord.getMinBufferSize(
+                        SAMPLE_RATE,
+                        CHANNEL_CONFIG,
+                        PCM_ENCODING
+                );
 
-            return false;
-        }
+        if (minBufferSize <= 0) {
 
-        if (!finishCurrentSegment()) {
-
-            Log.e(
-                    TAG,
-                    "Не удалось завершить сегмент при Pause"
+            throw new IOException(
+                    "Некорректный AudioRecord buffer: "
+                            + minBufferSize
             );
-
-            return false;
         }
 
-        paused = true;
+        int requestedBufferSize =
+                Math.max(
+                        minBufferSize * 4,
+                        PCM_BUFFER_SAMPLES
+                                * PCM_BYTES_PER_SAMPLE
+                                * 8
+                );
 
-        return true;
+        AudioRecord createdAudioRecord =
+                new AudioRecord(
+                        MediaRecorder.AudioSource.MIC,
+                        SAMPLE_RATE,
+                        CHANNEL_CONFIG,
+                        PCM_ENCODING,
+                        requestedBufferSize
+                );
+
+        if (createdAudioRecord.getState()
+                != AudioRecord.STATE_INITIALIZED) {
+
+            createdAudioRecord.release();
+
+            throw new IOException(
+                    "AudioRecord не инициализирован"
+            );
+        }
+
+        audioRecord =
+                createdAudioRecord;
     }
 
-    public boolean resumeRecording() {
+    private void prepareEncoder()
+            throws IOException {
 
-        if (!recording
-                || !paused) {
+        MediaFormat format =
+                MediaFormat.createAudioFormat(
+                        MediaFormat.MIMETYPE_AUDIO_AAC,
+                        SAMPLE_RATE,
+                        CHANNEL_COUNT
+                );
 
-            return false;
-        }
+        format.setInteger(
+                MediaFormat.KEY_AAC_PROFILE,
+                MediaCodecInfo
+                        .CodecProfileLevel
+                        .AACObjectLC
+        );
 
-        try {
+        format.setInteger(
+                MediaFormat.KEY_BIT_RATE,
+                AAC_BIT_RATE
+        );
 
-            startNewSegment();
+        format.setInteger(
+                MediaFormat.KEY_MAX_INPUT_SIZE,
+                PCM_BUFFER_SAMPLES
+                        * PCM_BYTES_PER_SAMPLE
+                        * 8
+        );
 
-            paused = false;
+        MediaCodec createdEncoder =
+                MediaCodec.createEncoderByType(
+                        MediaFormat.MIMETYPE_AUDIO_AAC
+                );
 
-            return true;
+        createdEncoder.configure(
+                format,
+                null,
+                null,
+                MediaCodec.CONFIGURE_FLAG_ENCODE
+        );
 
-        } catch (IOException | RuntimeException e) {
+        createdEncoder.start();
 
-            Log.e(
-                    TAG,
-                    "Не удалось начать сегмент после Resume",
-                    e
-            );
-
-            paused = true;
-
-            return false;
-        }
+        encoder =
+                createdEncoder;
     }
 
-    public boolean stopRecording() {
-
-        if (!recording) {
-
-            releaseRecorderOnly();
-
-            return false;
-        }
-
-        boolean segmentSuccess =
-                true;
-
-        /*
-         * При Stop во время RECORDING
-         * закрываем текущий сегмент.
-         *
-         * При Stop во время PAUSED
-         * сегмент уже был закрыт в pauseRecording().
-         */
-        if (!paused) {
-
-            segmentSuccess =
-                    finishCurrentSegment();
-        }
-
-        if (!segmentSuccess) {
-
-            Log.e(
-                    TAG,
-                    "Не удалось завершить последний сегмент"
-            );
-
-            recording = false;
-
-            paused = false;
-
-            releaseRecorderOnly();
-
-            deleteTemporarySegments();
-
-            return false;
-        }
-
-        boolean outputSuccess =
-                buildFinalOutput();
-
-        recording = false;
-
-        paused = false;
-
-        releaseRecorderOnly();
-
-        if (outputSuccess) {
-
-            deleteTemporarySegments();
-
-        } else {
-
-            Log.e(
-                    TAG,
-                    "Не удалось сформировать итоговый файл"
-            );
-
-            deleteTemporarySegments();
-        }
-
-        return outputSuccess;
-    }
-
-    private void startNewSegment()
+    private void prepareMuxer()
             throws IOException {
 
         if (outputFile == null) {
 
             throw new IOException(
-                    "Итоговый файл не задан"
+                    "Файл записи отсутствует"
             );
         }
 
-        File parent =
-                outputFile.getParentFile();
-
-        if (parent == null) {
-
-            throw new IOException(
-                    "Папка записи отсутствует"
-            );
-        }
-
-        String outputName =
-                outputFile.getName();
-
-        int extensionIndex =
-                outputName.lastIndexOf('.');
-
-        String baseName;
-
-        if (extensionIndex > 0) {
-
-            baseName =
-                    outputName.substring(
-                            0,
-                            extensionIndex
-                    );
-
-        } else {
-
-            baseName =
-                    outputName;
-        }
-
-        File segmentFile =
-                new File(
-                        parent,
-                        baseName
-                                + "_segment_"
-                                + segmentIndex
-                                + ".m4a"
+        muxer =
+                new MediaMuxer(
+                        outputFile.getAbsolutePath(),
+                        MediaMuxer.OutputFormat
+                                .MUXER_OUTPUT_MPEG_4
                 );
-
-        if (segmentFile.exists()
-                && !segmentFile.delete()) {
-
-            throw new IOException(
-                    "Не удалось удалить старый сегмент"
-            );
-        }
-
-        MediaRecorder newRecorder =
-                new MediaRecorder();
-
-        try {
-
-            newRecorder.setAudioSource(
-                    MediaRecorder.AudioSource.MIC
-            );
-
-            newRecorder.setOutputFormat(
-                    MediaRecorder.OutputFormat.MPEG_4
-            );
-
-            newRecorder.setAudioEncoder(
-                    MediaRecorder.AudioEncoder.AAC
-            );
-
-            newRecorder.setAudioEncodingBitRate(
-                    128000
-            );
-
-            newRecorder.setAudioSamplingRate(
-                    44100
-            );
-
-            newRecorder.setOutputFile(
-                    segmentFile.getAbsolutePath()
-            );
-
-            newRecorder.prepare();
-
-            newRecorder.start();
-
-            recorder =
-                    newRecorder;
-
-            currentSegmentFile =
-                    segmentFile;
-
-            segmentIndex++;
-
-            Log.d(
-                    TAG,
-                    "Начат сегмент: "
-                            + segmentFile.getName()
-            );
-
-        } catch (IOException | RuntimeException e) {
-
-            safeRelease(
-                    newRecorder
-            );
-
-            deleteFileQuietly(
-                    segmentFile
-            );
-
-            throw e;
-        }
     }
 
-    private boolean finishCurrentSegment() {
+    private void resetSessionState() {
 
-        if (recorder == null
-                || currentSegmentFile == null) {
+        pcmQueue.clear();
 
-            return false;
-        }
+        recording =
+                false;
 
-        File segment =
-                currentSegmentFile;
+        paused =
+                false;
 
-        boolean success = false;
+        stopRequested =
+                false;
 
-        try {
+        captureSuccess =
+                false;
 
-            recorder.stop();
+        encoderSuccess =
+                false;
 
-            success = true;
+        maxAmplitude =
+                0;
 
-        } catch (RuntimeException e) {
+        totalPcmSamples =
+                0L;
 
-            Log.e(
-                    TAG,
-                    "Ошибка остановки сегмента",
-                    e
-            );
+        firstEncoderPresentationTimeUs =
+                Long.MIN_VALUE;
 
-        } finally {
+        lastMuxerPresentationTimeUs =
+                -1L;
 
-            releaseRecorderOnly();
+        muxerStarted =
+                false;
 
-            currentSegmentFile = null;
-        }
-
-        if (!success) {
-
-            deleteFileQuietly(
-                    segment
-            );
-
-            return false;
-        }
-
-        if (!isValidSegment(
-                segment
-        )) {
-
-            Log.e(
-                    TAG,
-                    "Сегмент невалиден: "
-                            + segment.getAbsolutePath()
-            );
-
-            deleteFileQuietly(
-                    segment
-            );
-
-            return false;
-        }
-
-        segmentFiles.add(
-                segment
-        );
-
-        Log.d(
-                TAG,
-                "Завершён сегмент: "
-                        + segment.getName()
-        );
-
-        return true;
+        muxerTrackIndex =
+                -1;
     }
 
-    private boolean buildFinalOutput() {
+    private void requestAudioRecordStop() {
 
-        if (outputFile == null
-                || segmentFiles.isEmpty()) {
+        AudioRecord localAudioRecord =
+                audioRecord;
 
-            return false;
-        }
-
-        if (segmentFiles.size() == 1) {
-
-            return moveSingleSegment(
-                    segmentFiles.get(0),
-                    outputFile
-            );
-        }
-
-        Log.d(
-                TAG,
-                "Объединение сегментов: "
-                        + segmentFiles.size()
-        );
-
-        return segmentMerger.merge(
-                segmentFiles,
-                outputFile
-        );
-    }
-
-    private boolean moveSingleSegment(
-            File source,
-            File destination
-    ) {
-
-        if (!isValidSegment(
-                source
-        )) {
-
-            return false;
-        }
-
-        if (destination.exists()
-                && !destination.delete()) {
-
-            return false;
-        }
-
-        if (source.renameTo(
-                destination
-        )) {
-
-            return destination.exists()
-                    && destination.isFile()
-                    && destination.length() > 0L;
-        }
-
-        FileInputStream input =
-                null;
-
-        FileOutputStream output =
-                null;
-
-        try {
-
-            input =
-                    new FileInputStream(
-                            source
-                    );
-
-            output =
-                    new FileOutputStream(
-                            destination
-                    );
-
-            byte[] buffer =
-                    new byte[
-                            COPY_BUFFER_SIZE
-                            ];
-
-            int read;
-
-            while ((read =
-                    input.read(buffer)) != -1) {
-
-                output.write(
-                        buffer,
-                        0,
-                        read
-                );
-            }
-
-            output.flush();
-
-        } catch (IOException e) {
-
-            Log.e(
-                    TAG,
-                    "Ошибка копирования сегмента",
-                    e
-            );
-
-            deleteFileQuietly(
-                    destination
-            );
-
-            return false;
-
-        } finally {
-
-            if (input != null) {
-
-                try {
-
-                    input.close();
-
-                } catch (IOException ignored) {
-                }
-            }
-
-            if (output != null) {
-
-                try {
-
-                    output.close();
-
-                } catch (IOException ignored) {
-                }
-            }
-        }
-
-        if (!destination.exists()
-                || !destination.isFile()
-                || destination.length() <= 0L) {
-
-            deleteFileQuietly(
-                    destination
-            );
-
-            return false;
-        }
-
-        deleteFileQuietly(
-                source
-        );
-
-        return true;
-    }
-
-    private boolean isValidSegment(
-            File file
-    ) {
-
-        return file != null
-                && file.exists()
-                && file.isFile()
-                && file.length() > 0L;
-    }
-
-    private void releaseRecorderOnly() {
-
-        if (recorder == null) {
-            return;
-        }
-
-        safeRelease(
-                recorder
-        );
-
-        recorder = null;
-    }
-
-    private void safeRelease(
-            MediaRecorder mediaRecorder
-    ) {
-
-        if (mediaRecorder == null) {
+        if (localAudioRecord == null) {
             return;
         }
 
         try {
 
-            mediaRecorder.reset();
+            if (localAudioRecord.getRecordingState()
+                    == AudioRecord.RECORDSTATE_RECORDING) {
+
+                localAudioRecord.stop();
+            }
 
         } catch (Exception e) {
 
             Log.w(
                     TAG,
-                    "Ошибка MediaRecorder.reset()",
+                    "Ошибка принудительного AudioRecord.stop()",
+                    e
+            );
+        }
+    }
+
+    private void stopAndReleaseAudioRecord() {
+
+        AudioRecord localAudioRecord =
+                audioRecord;
+
+        audioRecord =
+                null;
+
+        if (localAudioRecord == null) {
+            return;
+        }
+
+        try {
+
+            if (localAudioRecord.getRecordingState()
+                    == AudioRecord.RECORDSTATE_RECORDING) {
+
+                localAudioRecord.stop();
+            }
+
+        } catch (Exception e) {
+
+            Log.w(
+                    TAG,
+                    "Ошибка AudioRecord.stop()",
                     e
             );
         }
 
         try {
 
-            mediaRecorder.release();
+            localAudioRecord.release();
 
         } catch (Exception e) {
 
             Log.w(
                     TAG,
-                    "Ошибка MediaRecorder.release()",
+                    "Ошибка AudioRecord.release()",
                     e
             );
         }
     }
 
-    private void deleteTemporarySegments() {
+    private void releaseEncoder() {
 
-        for (File segment
-                : segmentFiles) {
+        MediaCodec localEncoder =
+                encoder;
 
-            deleteFileQuietly(
-                    segment
+        encoder =
+                null;
+
+        if (localEncoder == null) {
+            return;
+        }
+
+        try {
+
+            localEncoder.stop();
+
+        } catch (Exception e) {
+
+            Log.w(
+                    TAG,
+                    "Ошибка MediaCodec.stop()",
+                    e
             );
         }
 
-        segmentFiles.clear();
+        try {
 
-        if (currentSegmentFile != null) {
+            localEncoder.release();
 
-            deleteFileQuietly(
-                    currentSegmentFile
+        } catch (Exception e) {
+
+            Log.w(
+                    TAG,
+                    "Ошибка MediaCodec.release()",
+                    e
             );
-
-            currentSegmentFile = null;
         }
     }
 
-    private void deleteFileQuietly(
-            File file
+    private boolean stopAndReleaseMuxer() {
+
+        MediaMuxer localMuxer =
+                muxer;
+
+        muxer =
+                null;
+
+        if (localMuxer == null) {
+            return false;
+        }
+
+        boolean success =
+                muxerStarted;
+
+        if (muxerStarted) {
+
+            try {
+
+                localMuxer.stop();
+
+            } catch (Exception e) {
+
+                Log.e(
+                        TAG,
+                        "Ошибка MediaMuxer.stop()",
+                        e
+                );
+
+                success =
+                        false;
+            }
+        }
+
+        try {
+
+            localMuxer.release();
+
+        } catch (Exception e) {
+
+            Log.w(
+                    TAG,
+                    "Ошибка MediaMuxer.release()",
+                    e
+            );
+
+            success =
+                    false;
+        }
+
+        muxerStarted =
+                false;
+
+        muxerTrackIndex =
+                -1;
+
+        return success;
+    }
+
+    private void cleanupAfterStartFailure() {
+
+        requestAudioRecordStop();
+
+        stopAndReleaseAudioRecord();
+
+        releaseEncoder();
+
+        MediaMuxer localMuxer =
+                muxer;
+
+        muxer =
+                null;
+
+        if (localMuxer != null) {
+
+            try {
+
+                if (muxerStarted) {
+
+                    localMuxer.stop();
+                }
+
+            } catch (Exception ignored) {
+            }
+
+            try {
+
+                localMuxer.release();
+
+            } catch (Exception ignored) {
+            }
+        }
+
+        muxerStarted =
+                false;
+
+        muxerTrackIndex =
+                -1;
+    }
+
+    private void joinThread(
+            Thread thread,
+            long timeoutMs,
+            String name
     ) {
+
+        if (thread == null
+                || thread == Thread.currentThread()) {
+
+            return;
+        }
+
+        try {
+
+            thread.join(
+                    timeoutMs
+            );
+
+        } catch (InterruptedException e) {
+
+            Thread.currentThread()
+                    .interrupt();
+
+            Log.w(
+                    TAG,
+                    "Ожидание "
+                            + name
+                            + " thread прервано",
+                    e
+            );
+        }
+
+        if (thread.isAlive()) {
+
+            Log.e(
+                    TAG,
+                    name
+                            + " thread не завершился"
+            );
+
+            thread.interrupt();
+        }
+    }
+
+    private boolean isThreadAlive(
+            Thread thread
+    ) {
+
+        return thread != null
+                && thread.isAlive();
+    }
+
+    private void deleteOutputFileQuietly() {
+
+        File file =
+                outputFile;
 
         if (file == null
                 || !file.exists()) {
@@ -674,21 +1786,12 @@ public class AudioRecorder {
     public int getMaxAmplitude() {
 
         if (!recording
-                || paused
-                || recorder == null) {
+                || paused) {
 
             return 0;
         }
 
-        try {
-
-            return recorder
-                    .getMaxAmplitude();
-
-        } catch (Exception e) {
-
-            return 0;
-        }
+        return maxAmplitude;
     }
 
     public File getOutputFile() {
@@ -722,5 +1825,30 @@ public class AudioRecorder {
 
         return outputFile
                 .getAbsolutePath();
+    }
+
+    private static final class PcmChunk {
+
+        private final short[] data;
+
+        private final int sampleCount;
+
+        private final boolean endOfStream;
+
+        private PcmChunk(
+                short[] data,
+                int sampleCount,
+                boolean endOfStream
+        ) {
+
+            this.data =
+                    data;
+
+            this.sampleCount =
+                    sampleCount;
+
+            this.endOfStream =
+                    endOfStream;
+        }
     }
 }

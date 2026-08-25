@@ -1,5 +1,7 @@
 package com.nicko.airecorder.utils;
 
+import android.media.AudioFormat;
+import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.os.Handler;
@@ -9,6 +11,7 @@ import android.util.Log;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -19,24 +22,46 @@ public class WaveformExtractor {
     private static final String TAG =
             "WaveformExtractor";
 
-    private static final int TARGET_POINTS = 180;
+    private static final int TARGET_POINTS =
+            180;
+
+    private static final long CODEC_TIMEOUT_US =
+            10_000L;
+
+    private static final double MIN_DB =
+            -60.0;
 
     private static final ExecutorService EXECUTOR =
             Executors.newSingleThreadExecutor();
 
     private final Handler mainHandler =
-            new Handler(Looper.getMainLooper());
+            new Handler(
+                    Looper.getMainLooper()
+            );
 
     public interface Callback {
 
-        void onWaveformReady(int[] waveform);
-
+        void onWaveformReady(
+                int[] waveform
+        );
     }
 
     public void extract(
             File file,
             Callback callback
     ) {
+
+        if (file == null
+                || !file.exists()
+                || !file.isFile()) {
+
+            deliverResult(
+                    callback,
+                    new int[0]
+            );
+
+            return;
+        }
 
         WaveformCache cache =
                 WaveformCache.getInstance();
@@ -48,47 +73,64 @@ public class WaveformExtractor {
 
         if (cached != null) {
 
-            if (callback != null) {
-
-                mainHandler.post(() ->
-                        callback.onWaveformReady(cached)
-                );
-
-            }
+            deliverResult(
+                    callback,
+                    cached
+            );
 
             return;
-
         }
 
         EXECUTOR.execute(() -> {
 
             int[] result =
-                    buildWaveform(file);
+                    buildWaveform(
+                            file
+                    );
 
             cache.put(
                     file.getAbsolutePath(),
                     result
             );
 
-            if (callback != null) {
-
-                mainHandler.post(() ->
-                        callback.onWaveformReady(result)
-                );
-
-            }
-
+            deliverResult(
+                    callback,
+                    result
+            );
         });
-
     }
 
-    private int[] buildWaveform(File file) {
+    private void deliverResult(
+            Callback callback,
+            int[] result
+    ) {
 
-        List<Integer> amplitudes =
+        if (callback == null) {
+            return;
+        }
+
+        mainHandler.post(() ->
+                callback.onWaveformReady(
+                        result
+                )
+        );
+    }
+
+    private int[] buildWaveform(
+            File file
+    ) {
+
+        List<Integer> levels =
                 new ArrayList<>();
 
         MediaExtractor extractor =
                 new MediaExtractor();
+
+        MediaCodec decoder =
+                null;
+
+        boolean decoderStarted =
+                false;
 
         try {
 
@@ -96,163 +138,509 @@ public class WaveformExtractor {
                     file.getAbsolutePath()
             );
 
-            int audioTrack = -1;
+            int audioTrack =
+                    findAudioTrack(
+                            extractor
+                    );
 
-            for (
-                    int i = 0;
-                    i < extractor.getTrackCount();
-                    i++
-            ) {
+            if (audioTrack < 0) {
 
-                MediaFormat format =
-                        extractor.getTrackFormat(i);
-
-                String mime =
-                        format.getString(
-                                MediaFormat.KEY_MIME
-                        );
-
-                if (mime != null
-                        && mime.startsWith("audio/")) {
-
-                    audioTrack = i;
-
-                    break;
-
-                }
-
-            }
-
-            if (audioTrack == -1) {
+                Log.e(
+                        TAG,
+                        "Аудиотрек не найден"
+                );
 
                 return new int[0];
+            }
 
+            MediaFormat inputFormat =
+                    extractor.getTrackFormat(
+                            audioTrack
+                    );
+
+            String mime =
+                    inputFormat.getString(
+                            MediaFormat.KEY_MIME
+                    );
+
+            if (mime == null
+                    || !mime.startsWith(
+                    "audio/"
+            )) {
+
+                return new int[0];
             }
 
             extractor.selectTrack(
                     audioTrack
             );
 
-            ByteBuffer buffer =
-                    ByteBuffer.allocate(8192);
-
-            while (true) {
-
-                int size =
-                        extractor.readSampleData(
-                                buffer,
-                                0
-                        );
-
-                if (size < 0) {
-                    break;
-                }
-
-                int amplitude = 0;
-
-                for (int i = 0; i < size; i++) {
-
-                    amplitude +=
-                            Math.abs(
-                                    buffer.get(i)
+            decoder =
+                    MediaCodec
+                            .createDecoderByType(
+                                    mime
                             );
 
-                }
+            decoder.configure(
+                    inputFormat,
+                    null,
+                    null,
+                    0
+            );
 
-                amplitudes.add(
+            decoder.start();
 
-                        amplitude
-                                / Math.max(
-                                size,
-                                1
-                        )
+            decoderStarted =
+                    true;
 
-                );
+            decodeToLevels(
+                    extractor,
+                    decoder,
+                    levels
+            );
 
-                buffer.clear();
-
-                extractor.advance();
-
-            }
-
-        } catch (IOException e) {
+        } catch (Exception e) {
 
             Log.e(
                     TAG,
-                    "Ошибка извлечения waveform",
+                    "Ошибка декодирования waveform",
                     e
             );
 
         } finally {
 
-            extractor.release();
+            if (decoder != null) {
 
+                if (decoderStarted) {
+
+                    try {
+
+                        decoder.stop();
+
+                    } catch (Exception e) {
+
+                        Log.w(
+                                TAG,
+                                "Ошибка MediaCodec.stop()",
+                                e
+                        );
+                    }
+                }
+
+                try {
+
+                    decoder.release();
+
+                } catch (Exception e) {
+
+                    Log.w(
+                            TAG,
+                            "Ошибка MediaCodec.release()",
+                            e
+                    );
+                }
+            }
+
+            try {
+
+                extractor.release();
+
+            } catch (Exception e) {
+
+                Log.w(
+                        TAG,
+                        "Ошибка MediaExtractor.release()",
+                        e
+                );
+            }
         }
 
-        if (amplitudes.isEmpty()) {
-
+        if (levels.isEmpty()) {
             return new int[0];
-
         }
 
         int[] waveform =
                 new int[
-                        amplitudes.size()
+                        levels.size()
                         ];
 
-        for (
-                int i = 0;
-                i < amplitudes.size();
-                i++
-        ) {
+        for (int i = 0;
+             i < levels.size();
+             i++) {
 
             waveform[i] =
-                    amplitudes.get(i);
-
+                    levels.get(i);
         }
 
-        waveform =
-                normalize(waveform);
-
-        waveform =
-                compress(
-                        waveform,
-                        TARGET_POINTS
-                );
-
-        return waveform;
-
+        return compress(
+                waveform,
+                TARGET_POINTS
+        );
     }
 
-    private int[] normalize(int[] data) {
+    private void decodeToLevels(
+            MediaExtractor extractor,
+            MediaCodec decoder,
+            List<Integer> levels
+    ) throws IOException {
 
-        int max = 1;
+        boolean inputFinished =
+                false;
 
-        for (int value : data) {
+        boolean outputFinished =
+                false;
 
-            if (value > max) {
+        int pcmEncoding =
+                AudioFormat.ENCODING_PCM_16BIT;
 
-                max = value;
+        MediaCodec.BufferInfo bufferInfo =
+                new MediaCodec.BufferInfo();
 
+        while (!outputFinished) {
+
+            /*
+             * Feed encoded AAC data
+             * from MediaExtractor into decoder.
+             */
+            if (!inputFinished) {
+
+                int inputIndex =
+                        decoder.dequeueInputBuffer(
+                                CODEC_TIMEOUT_US
+                        );
+
+                if (inputIndex >= 0) {
+
+                    ByteBuffer inputBuffer =
+                            decoder.getInputBuffer(
+                                    inputIndex
+                            );
+
+                    if (inputBuffer == null) {
+
+                        throw new IOException(
+                                "Decoder input buffer = null"
+                        );
+                    }
+
+                    inputBuffer.clear();
+
+                    int sampleSize =
+                            extractor.readSampleData(
+                                    inputBuffer,
+                                    0
+                            );
+
+                    if (sampleSize < 0) {
+
+                        decoder.queueInputBuffer(
+                                inputIndex,
+                                0,
+                                0,
+                                0L,
+                                MediaCodec
+                                        .BUFFER_FLAG_END_OF_STREAM
+                        );
+
+                        inputFinished =
+                                true;
+
+                    } else {
+
+                        long presentationTimeUs =
+                                extractor.getSampleTime();
+
+                        decoder.queueInputBuffer(
+                                inputIndex,
+                                0,
+                                sampleSize,
+                                Math.max(
+                                        0L,
+                                        presentationTimeUs
+                                ),
+                                0
+                        );
+
+                        extractor.advance();
+                    }
+                }
             }
 
+            /*
+             * Read DECODED PCM.
+             */
+            int outputIndex =
+                    decoder.dequeueOutputBuffer(
+                            bufferInfo,
+                            CODEC_TIMEOUT_US
+                    );
+
+            if (outputIndex
+                    == MediaCodec
+                    .INFO_TRY_AGAIN_LATER) {
+
+                continue;
+            }
+
+            if (outputIndex
+                    == MediaCodec
+                    .INFO_OUTPUT_FORMAT_CHANGED) {
+
+                MediaFormat outputFormat =
+                        decoder.getOutputFormat();
+
+                if (outputFormat.containsKey(
+                        MediaFormat.KEY_PCM_ENCODING
+                )) {
+
+                    pcmEncoding =
+                            outputFormat.getInteger(
+                                    MediaFormat.KEY_PCM_ENCODING
+                            );
+                }
+
+                continue;
+            }
+
+            if (outputIndex < 0) {
+                continue;
+            }
+
+            ByteBuffer outputBuffer =
+                    decoder.getOutputBuffer(
+                            outputIndex
+                    );
+
+            if (outputBuffer != null
+                    && bufferInfo.size > 0) {
+
+                ByteBuffer pcm =
+                        outputBuffer.duplicate();
+
+                pcm.position(
+                        bufferInfo.offset
+                );
+
+                pcm.limit(
+                        bufferInfo.offset
+                                + bufferInfo.size
+                );
+
+                pcm =
+                        pcm.slice();
+
+                pcm.order(
+                        ByteOrder.nativeOrder()
+                );
+
+                int level;
+
+                if (pcmEncoding
+                        == AudioFormat
+                        .ENCODING_PCM_FLOAT) {
+
+                    level =
+                            calculateFloatPcmLevel(
+                                    pcm
+                            );
+
+                } else {
+
+                    level =
+                            calculatePcm16Level(
+                                    pcm
+                            );
+                }
+
+                levels.add(
+                        level
+                );
+            }
+
+            boolean endOfStream =
+                    (bufferInfo.flags
+                            & MediaCodec
+                            .BUFFER_FLAG_END_OF_STREAM)
+                            != 0;
+
+            decoder.releaseOutputBuffer(
+                    outputIndex,
+                    false
+            );
+
+            if (endOfStream) {
+
+                outputFinished =
+                        true;
+            }
+        }
+    }
+
+    private int findAudioTrack(
+            MediaExtractor extractor
+    ) {
+
+        for (int i = 0;
+             i < extractor.getTrackCount();
+             i++) {
+
+            MediaFormat format =
+                    extractor.getTrackFormat(i);
+
+            String mime =
+                    format.getString(
+                            MediaFormat.KEY_MIME
+                    );
+
+            if (mime != null
+                    && mime.startsWith(
+                    "audio/"
+            )) {
+
+                return i;
+            }
         }
 
-        for (
-                int i = 0;
-                i < data.length;
-                i++
-        ) {
+        return -1;
+    }
 
-            data[i] =
-                    data[i]
-                            * 100
-                            / max;
+    private int calculatePcm16Level(
+            ByteBuffer buffer
+    ) {
 
+        if (buffer == null
+                || buffer.remaining() < 2) {
+
+            return 0;
         }
 
-        return data;
+        double sumSquares =
+                0.0;
 
+        int sampleCount =
+                0;
+
+        while (buffer.remaining() >= 2) {
+
+            short sample =
+                    buffer.getShort();
+
+            double normalized =
+                    sample / 32768.0;
+
+            sumSquares +=
+                    normalized
+                            * normalized;
+
+            sampleCount++;
+        }
+
+        if (sampleCount == 0) {
+            return 0;
+        }
+
+        double rms =
+                Math.sqrt(
+                        sumSquares
+                                / sampleCount
+                );
+
+        return rmsToLevel(
+                rms
+        );
+    }
+
+    private int calculateFloatPcmLevel(
+            ByteBuffer buffer
+    ) {
+
+        if (buffer == null
+                || buffer.remaining() < 4) {
+
+            return 0;
+        }
+
+        double sumSquares =
+                0.0;
+
+        int sampleCount =
+                0;
+
+        while (buffer.remaining() >= 4) {
+
+            float sample =
+                    buffer.getFloat();
+
+            double normalized =
+                    Math.max(
+                            -1.0,
+                            Math.min(
+                                    1.0,
+                                    sample
+                            )
+                    );
+
+            sumSquares +=
+                    normalized
+                            * normalized;
+
+            sampleCount++;
+        }
+
+        if (sampleCount == 0) {
+            return 0;
+        }
+
+        double rms =
+                Math.sqrt(
+                        sumSquares
+                                / sampleCount
+                );
+
+        return rmsToLevel(
+                rms
+        );
+    }
+
+    private int rmsToLevel(
+            double rms
+    ) {
+
+        if (rms <= 0.0) {
+            return 0;
+        }
+
+        double db =
+                20.0
+                        * Math.log10(
+                        rms
+                );
+
+        if (db <= MIN_DB) {
+            return 0;
+        }
+
+        if (db >= 0.0) {
+            return 100;
+        }
+
+        double normalized =
+                (db - MIN_DB)
+                        / -MIN_DB;
+
+        int level =
+                (int) Math.round(
+                        normalized
+                                * 100.0
+                );
+
+        return Math.max(
+                0,
+                Math.min(
+                        100,
+                        level
+                )
+        );
     }
 
     private int[] compress(
@@ -260,10 +648,15 @@ public class WaveformExtractor {
             int targetSize
     ) {
 
+        if (source == null
+                || source.length == 0) {
+
+            return new int[0];
+        }
+
         if (source.length <= targetSize) {
 
             return source;
-
         }
 
         int[] result =
@@ -275,41 +668,58 @@ public class WaveformExtractor {
                 (float) source.length
                         / targetSize;
 
-        for (
-                int i = 0;
-                i < targetSize;
-                i++
-        ) {
+        for (int i = 0;
+             i < targetSize;
+             i++) {
 
             int start =
-                    (int) (i * step);
+                    (int) (
+                            i * step
+                    );
 
             int end =
-                    (int) ((i + 1) * step);
+                    (int) (
+                            (i + 1)
+                                    * step
+                    );
 
-            int max = 0;
+            end =
+                    Math.max(
+                            start + 1,
+                            end
+                    );
 
-            for (
-                    int j = start;
-                    j < end
-                            && j < source.length;
-                    j++
-            ) {
+            end =
+                    Math.min(
+                            source.length,
+                            end
+                    );
 
-                if (source[j] > max) {
+            long sum =
+                    0L;
 
-                    max = source[j];
+            int count =
+                    0;
 
-                }
+            for (int j = start;
+                 j < end;
+                 j++) {
 
+                sum +=
+                        source[j];
+
+                count++;
             }
 
-            result[i] = max;
+            if (count > 0) {
 
+                result[i] =
+                        (int) (
+                                sum / count
+                        );
+            }
         }
 
         return result;
-
     }
-
 }
