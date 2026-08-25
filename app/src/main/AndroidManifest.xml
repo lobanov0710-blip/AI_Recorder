@@ -47,7 +47,7 @@
             android:foregroundServiceType="microphone" />
 
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".provider.AIRecorderFileProvider"
             android:authorities="${applicationId}.provider"
             android:exported="false"
             android:grantUriPermissions="true">
