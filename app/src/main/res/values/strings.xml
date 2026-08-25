@@ -60,4 +60,9 @@
 
     <string name="player_subtitle">Воспроизведение</string>
 
+    <!-- Record card -->
+    <string name="play_record">Воспроизвести запись</string>
+    <string name="record_more_actions">Действия с записью</string>
+    <string name="record_actions_title">Действия с записью</string>
+
 </resources>

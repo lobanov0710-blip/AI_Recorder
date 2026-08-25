@@ -386,35 +386,68 @@ public class MainActivity extends AppCompatActivity {
         return new RecordAdapter.OnItemClickListener() {
 
             @Override
-            public void onItemClick(RecordItem item) {
+            public void onItemClick(
+                    RecordItem item
+            ) {
 
                 openPlayer(item);
-
             }
 
             @Override
-            public void onItemLongClick(RecordItem item) {
+            public void onItemLongClick(
+                    RecordItem item
+            ) {
 
                 showRenameDialog(item);
-
             }
 
             @Override
-            public void onDeleteClick(RecordItem item) {
+            public void onMoreClick(
+                    RecordItem item
+            ) {
 
-                showDeleteDialog(item);
-
+                showRecordActions(item);
             }
-
-            @Override
-            public void onShareClick(RecordItem item) {
-
-                shareRecord(item);
-
-            }
-
         };
+    }
 
+    private void showRecordActions(
+            RecordItem item
+    ) {
+
+        if (item == null) {
+            return;
+        }
+
+        dialogManager.showRecordActions(
+
+                new DialogManager.RecordActionsListener() {
+
+                    @Override
+                    public void onRename() {
+
+                        showRenameDialog(
+                                item
+                        );
+                    }
+
+                    @Override
+                    public void onShare() {
+
+                        shareRecord(
+                                item
+                        );
+                    }
+
+                    @Override
+                    public void onDelete() {
+
+                        showDeleteDialog(
+                                item
+                        );
+                    }
+                }
+        );
     }
 
     private void showRenameDialog(RecordItem item) {

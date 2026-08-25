@@ -12,9 +12,7 @@
     android:paddingEnd="20dp"
     android:paddingBottom="16dp">
 
-    <!-- =====================================================
-         HEADER
-         ===================================================== -->
+    <!-- HEADER -->
 
     <TextView
         android:layout_width="match_parent"
@@ -22,21 +20,16 @@
         android:text="@string/app_name"
         android:textColor="@color/ai_text_primary"
         android:textSize="30sp"
-        android:textStyle="bold"
-        android:letterSpacing="-0.02" />
+        android:textStyle="bold" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="5dp"
+        android:lineSpacingExtra="2dp"
         android:text="@string/records_subtitle"
         android:textColor="@color/ai_text_secondary"
-        android:textSize="14sp"
-        android:lineSpacingExtra="2dp" />
-
-    <!-- =====================================================
-         RECORDINGS TITLE
-         ===================================================== -->
+        android:textSize="14sp" />
 
     <TextView
         android:layout_width="match_parent"
@@ -47,9 +40,7 @@
         android:textSize="20sp"
         android:textStyle="bold" />
 
-    <!-- =====================================================
-         RECORDINGS LIST
-         ===================================================== -->
+    <!-- RECORDINGS -->
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerRecords"
@@ -61,9 +52,7 @@
         android:overScrollMode="never"
         android:paddingBottom="12dp" />
 
-    <!-- =====================================================
-         RECORDING PANEL
-         ===================================================== -->
+    <!-- RECORDING PANEL -->
 
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
@@ -78,10 +67,14 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:paddingStart="18dp"
+            android:paddingTop="18dp"
+            android:paddingEnd="18dp"
+            android:paddingBottom="16dp">
 
-            <!-- Recording state -->
+            <!-- STATE -->
 
             <TextView
                 android:id="@+id/txtRecordingStatus"
@@ -90,11 +83,11 @@
                 android:gravity="center"
                 android:text="@string/record_in_progress"
                 android:textColor="@color/ai_record"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
 
-            <!-- Timer -->
+            <!-- TIMER -->
 
             <TextView
                 android:id="@+id/txtRecordTime"
@@ -104,21 +97,21 @@
                 android:gravity="center"
                 android:text="@string/time_zero"
                 android:textColor="@color/ai_text_primary"
-                android:textSize="38sp"
+                android:textSize="40sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
 
-            <!-- Waveform -->
+            <!-- WAVEFORM -->
 
             <com.nicko.airecorder.view.WaveformView
                 android:id="@+id/waveformView"
                 android:layout_width="match_parent"
                 android:layout_height="112dp"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="8dp"
                 android:layout_marginBottom="14dp"
                 android:visibility="gone" />
 
-            <!-- Controls -->
+            <!-- CONTROLS -->
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -126,33 +119,66 @@
                 android:gravity="center"
                 android:orientation="horizontal">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnRecord"
-                    android:layout_width="0dp"
-                    android:layout_height="58dp"
-                    android:layout_weight="1"
-                    android:backgroundTint="@color/ai_primary"
-                    android:text="@string/record_start"
-                    android:textColor="@color/ai_on_primary"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    app:cornerRadius="20dp" />
+                <!-- MAIN ACTION -->
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnStop"
-                    android:layout_width="0dp"
-                    android:layout_height="58dp"
-                    android:layout_marginStart="10dp"
-                    android:layout_weight="1"
-                    android:backgroundTint="@color/ai_surface_variant"
-                    android:text="@string/record_stop"
-                    android:textColor="@color/ai_record"
-                    android:textSize="15sp"
-                    android:textStyle="bold"
-                    android:visibility="gone"
-                    app:cornerRadius="20dp"
-                    app:strokeColor="@color/ai_outline"
-                    app:strokeWidth="1dp" />
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <androidx.appcompat.widget.AppCompatImageButton
+                        android:id="@+id/btnRecord"
+                        android:layout_width="82dp"
+                        android:layout_height="82dp"
+                        android:background="@drawable/bg_record_idle"
+                        android:contentDescription="@string/record_start"
+                        android:padding="25dp"
+                        android:scaleType="centerInside"
+                        app:srcCompat="@drawable/ic_mic_24" />
+
+                    <TextView
+                        android:id="@+id/txtRecordAction"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="9dp"
+                        android:text="@string/record_start"
+                        android:textColor="@color/ai_text_primary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+                <!-- STOP -->
+
+                <LinearLayout
+                    android:id="@+id/stopContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="28dp"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <androidx.appcompat.widget.AppCompatImageButton
+                        android:id="@+id/btnStop"
+                        android:layout_width="62dp"
+                        android:layout_height="62dp"
+                        android:background="@drawable/bg_record_stop"
+                        android:contentDescription="@string/record_stop"
+                        android:padding="19dp"
+                        android:scaleType="centerInside"
+                        app:srcCompat="@drawable/ic_stop_24" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="9dp"
+                        android:text="@string/record_stop"
+                        android:textColor="@color/ai_text_secondary"
+                        android:textSize="12sp" />
+
+                </LinearLayout>
 
             </LinearLayout>
 

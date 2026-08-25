@@ -54,18 +54,33 @@ public class RecordingController {
 
                                     break;
                             }
-
                         }
                 );
     }
 
     private void showIdleState() {
 
-        binding.btnRecord.setText(
+        binding.btnRecord.setImageResource(
+                R.drawable.ic_mic_24
+        );
+
+        binding.btnRecord.setBackgroundResource(
+                R.drawable.bg_record_idle
+        );
+
+        binding.btnRecord.setContentDescription(
+                binding.getRoot()
+                        .getContext()
+                        .getString(
+                                R.string.record_start
+                        )
+        );
+
+        binding.txtRecordAction.setText(
                 R.string.record_start
         );
 
-        binding.btnStop.setVisibility(
+        binding.stopContainer.setVisibility(
                 View.GONE
         );
 
@@ -86,11 +101,27 @@ public class RecordingController {
 
     private void showRecordingState() {
 
-        binding.btnRecord.setText(
+        binding.btnRecord.setImageResource(
+                R.drawable.ic_pause_24
+        );
+
+        binding.btnRecord.setBackgroundResource(
+                R.drawable.bg_record_active
+        );
+
+        binding.btnRecord.setContentDescription(
+                binding.getRoot()
+                        .getContext()
+                        .getString(
+                                R.string.record_pause
+                        )
+        );
+
+        binding.txtRecordAction.setText(
                 R.string.record_pause
         );
 
-        binding.btnStop.setVisibility(
+        binding.stopContainer.setVisibility(
                 View.VISIBLE
         );
 
@@ -102,6 +133,15 @@ public class RecordingController {
                 R.string.record_in_progress
         );
 
+        binding.txtRecordingStatus.setTextColor(
+                androidx.core.content.ContextCompat
+                        .getColor(
+                                binding.getRoot()
+                                        .getContext(),
+                                R.color.ai_record
+                        )
+        );
+
         binding.txtRecordingStatus.setVisibility(
                 View.VISIBLE
         );
@@ -109,15 +149,33 @@ public class RecordingController {
         binding.waveformView.setVisibility(
                 View.VISIBLE
         );
+
+        animatePrimaryButton();
     }
 
     private void showPausedState() {
 
-        binding.btnRecord.setText(
+        binding.btnRecord.setImageResource(
+                R.drawable.ic_play_24
+        );
+
+        binding.btnRecord.setBackgroundResource(
+                R.drawable.bg_record_paused
+        );
+
+        binding.btnRecord.setContentDescription(
+                binding.getRoot()
+                        .getContext()
+                        .getString(
+                                R.string.record_resume
+                        )
+        );
+
+        binding.txtRecordAction.setText(
                 R.string.record_resume
         );
 
-        binding.btnStop.setVisibility(
+        binding.stopContainer.setVisibility(
                 View.VISIBLE
         );
 
@@ -129,6 +187,15 @@ public class RecordingController {
                 R.string.record_paused
         );
 
+        binding.txtRecordingStatus.setTextColor(
+                androidx.core.content.ContextCompat
+                        .getColor(
+                                binding.getRoot()
+                                        .getContext(),
+                                R.color.ai_text_secondary
+                        )
+        );
+
         binding.txtRecordingStatus.setVisibility(
                 View.VISIBLE
         );
@@ -136,5 +203,29 @@ public class RecordingController {
         binding.waveformView.setVisibility(
                 View.VISIBLE
         );
+
+        animatePrimaryButton();
+    }
+
+    private void animatePrimaryButton() {
+
+        binding.btnRecord
+                .animate()
+                .cancel();
+
+        binding.btnRecord.setScaleX(
+                0.94f
+        );
+
+        binding.btnRecord.setScaleY(
+                0.94f
+        );
+
+        binding.btnRecord
+                .animate()
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(160L)
+                .start();
     }
 }

@@ -3,10 +3,10 @@ package com.nicko.airecorder.adapter;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.widget.AppCompatImageButton;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListAdapter;
 import androidx.recyclerview.widget.RecyclerView;
@@ -33,26 +33,28 @@ public class RecordAdapter
 
         void onItemLongClick(RecordItem item);
 
-        void onDeleteClick(RecordItem item);
-
-        void onShareClick(RecordItem item);
+        void onMoreClick(RecordItem item);
     }
 
-    private static final DiffUtil.ItemCallback<RecordItem> DIFF_CALLBACK =
+    private static final DiffUtil.ItemCallback<RecordItem>
+            DIFF_CALLBACK =
             new DiffUtil.ItemCallback<RecordItem>() {
 
                 @Override
                 public boolean areItemsTheSame(
                         @NonNull RecordItem oldItem,
-                        @NonNull RecordItem newItem) {
+                        @NonNull RecordItem newItem
+                ) {
 
-                    return oldItem.getId() == newItem.getId();
+                    return oldItem.getId()
+                            == newItem.getId();
                 }
 
                 @Override
                 public boolean areContentsTheSame(
                         @NonNull RecordItem oldItem,
-                        @NonNull RecordItem newItem) {
+                        @NonNull RecordItem newItem
+                ) {
 
                     return oldItem.equals(newItem);
                 }
@@ -60,7 +62,9 @@ public class RecordAdapter
 
     private final OnItemClickListener listener;
 
-    public RecordAdapter(OnItemClickListener listener) {
+    public RecordAdapter(
+            OnItemClickListener listener
+    ) {
 
         super(DIFF_CALLBACK);
 
@@ -71,14 +75,17 @@ public class RecordAdapter
     @Override
     public ViewHolder onCreateViewHolder(
             @NonNull ViewGroup parent,
-            int viewType) {
+            int viewType
+    ) {
 
-        View view = LayoutInflater.from(parent.getContext())
-                .inflate(
-                        R.layout.item_record,
-                        parent,
-                        false
-                );
+        View view =
+                LayoutInflater
+                        .from(parent.getContext())
+                        .inflate(
+                                R.layout.item_record,
+                                parent,
+                                false
+                        );
 
         return new ViewHolder(view);
     }
@@ -89,71 +96,91 @@ public class RecordAdapter
             int position
     ) {
 
-        RecordItem item = getItem(position);
+        RecordItem item =
+                getItem(position);
 
-        holder.txtFileName.setText(getDisplayTitle(item));
+        holder.txtFileName.setText(
+                getDisplayTitle(item)
+        );
 
         holder.txtDate.setText(
                 DATE_FORMAT.format(
-                        new Date(item.getCreatedAt())
+                        new Date(
+                                item.getCreatedAt()
+                        )
                 )
         );
 
-        long seconds = item.getDuration() / 1000;
+        long seconds =
+                item.getDuration() / 1000;
 
-        long minutes = seconds / 60;
+        long minutes =
+                seconds / 60;
 
         seconds %= 60;
 
         holder.txtDuration.setText(
-
                 String.format(
-
                         Locale.getDefault(),
-
                         "%02d:%02d",
-
                         minutes,
-
                         seconds
-
                 )
-
         );
 
-        holder.itemView.setOnClickListener(v ->
-                listener.onItemClick(item));
+        /*
+         * Открытие Player по нажатию
+         * на всю карточку.
+         */
+        holder.itemView.setOnClickListener(
+                v -> listener.onItemClick(item)
+        );
 
+        /*
+         * Отдельная Play-кнопка открывает
+         * тот же Player.
+         */
+        holder.btnPlay.setOnClickListener(
+                v -> listener.onItemClick(item)
+        );
+
+        /*
+         * Long press оставляем как быстрый
+         * shortcut для Rename.
+         */
         holder.itemView.setOnLongClickListener(v -> {
 
             listener.onItemLongClick(item);
 
             return true;
-
         });
 
-        holder.btnDelete.setOnClickListener(v ->
-                listener.onDeleteClick(item));
-
-        holder.btnShare.setOnClickListener(v ->
-                listener.onShareClick(item));
-
+        /*
+         * Premium actions menu.
+         */
+        holder.btnMore.setOnClickListener(
+                v -> listener.onMoreClick(item)
+        );
     }
-    private String getDisplayTitle(RecordItem item) {
 
-        String title = item.getTitle();
+    private String getDisplayTitle(
+            RecordItem item
+    ) {
 
-        if (title == null || title.trim().isEmpty()) {
+        String title =
+                item.getTitle();
+
+        if (title == null
+                || title.trim().isEmpty()) {
 
             return item.getFileName();
-
         }
 
         return title;
-
     }
 
-    static class ViewHolder extends RecyclerView.ViewHolder {
+    static class ViewHolder
+            extends RecyclerView.ViewHolder {
 
         final TextView txtFileName;
 
@@ -161,28 +188,40 @@ public class RecordAdapter
 
         final TextView txtDuration;
 
-        final Button btnDelete;
+        final AppCompatImageButton btnPlay;
 
-        final Button btnShare;
+        final AppCompatImageButton btnMore;
 
-        ViewHolder(@NonNull View itemView) {
+        ViewHolder(
+                @NonNull View itemView
+        ) {
 
             super(itemView);
 
             txtFileName =
-                    itemView.findViewById(R.id.txtFileName);
+                    itemView.findViewById(
+                            R.id.txtFileName
+                    );
 
             txtDate =
-                    itemView.findViewById(R.id.txtDate);
+                    itemView.findViewById(
+                            R.id.txtDate
+                    );
 
             txtDuration =
-                    itemView.findViewById(R.id.txtDuration);
+                    itemView.findViewById(
+                            R.id.txtDuration
+                    );
 
-            btnDelete =
-                    itemView.findViewById(R.id.btnDelete);
+            btnPlay =
+                    itemView.findViewById(
+                            R.id.btnPlay
+                    );
 
-            btnShare =
-                    itemView.findViewById(R.id.btnShare);
+            btnMore =
+                    itemView.findViewById(
+                            R.id.btnMore
+                    );
         }
     }
 }
