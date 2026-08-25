@@ -8,39 +8,84 @@
     android:background="@color/ai_background"
     android:orientation="vertical"
     android:paddingStart="20dp"
-    android:paddingTop="24dp"
+    android:paddingTop="16dp"
     android:paddingEnd="20dp"
     android:paddingBottom="20dp">
 
     <!-- =====================================================
-         HEADER
+         TOP BAR
          ===================================================== -->
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/player_subtitle"
-        android:textColor="@color/ai_primary_light"
-        android:textSize="13sp"
-        android:textStyle="bold" />
+        android:layout_height="48dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <!-- BACK -->
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back"
+            android:padding="10dp"
+            android:scaleType="centerInside"
+            app:srcCompat="@drawable/ic_arrow_back_24"
+            app:tint="@color/ai_text_primary" />
+
+        <!-- CENTER TITLE -->
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="@string/player_subtitle"
+            android:textColor="@color/ai_primary_light"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <!--
+            Балансирует кнопку Back,
+            чтобы заголовок находился
+            строго по центру экрана.
+        -->
+
+        <Space
+            android:layout_width="44dp"
+            android:layout_height="44dp" />
+
+    </LinearLayout>
+
+    <!-- =====================================================
+         RECORD TITLE
+         ===================================================== -->
 
     <TextView
         android:id="@+id/txtTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="14dp"
         android:ellipsize="end"
+        android:gravity="center"
         android:maxLines="2"
         android:text="@string/player_default_title"
         android:textColor="@color/ai_text_primary"
-        android:textSize="28sp"
+        android:textSize="26sp"
         android:textStyle="bold" />
+
+    <!-- =====================================================
+         TIME
+         ===================================================== -->
 
     <TextView
         android:id="@+id/txtTime"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
+        android:gravity="center"
         android:text="@string/player_initial_time"
         android:textColor="@color/ai_text_secondary"
         android:textSize="14sp" />
@@ -65,7 +110,12 @@
             android:layout_height="match_parent"
             android:gravity="center"
             android:orientation="vertical"
-            android:padding="18dp">
+            android:paddingStart="18dp"
+            android:paddingTop="22dp"
+            android:paddingEnd="18dp"
+            android:paddingBottom="18dp">
+
+            <!-- WAVEFORM -->
 
             <com.nicko.airecorder.view.WaveformView
                 android:id="@+id/waveformView"
@@ -73,13 +123,13 @@
                 android:layout_height="0dp"
                 android:layout_weight="1" />
 
+            <!-- SEEK -->
+
             <SeekBar
                 android:id="@+id/seekBar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:maxHeight="3dp"
-                android:minHeight="3dp"
+                android:layout_marginTop="12dp"
                 android:progressBackgroundTint="@color/ai_seek_track"
                 android:progressTint="@color/ai_primary"
                 android:thumbTint="@color/ai_primary" />
@@ -92,38 +142,54 @@
          PLAYER CONTROLS
          ===================================================== -->
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnPlay"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="58dp"
-        android:layout_marginTop="18dp"
-        android:backgroundTint="@color/ai_primary"
-        android:text="@string/player_play_initial"
-        android:textColor="@color/ai_on_primary"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        app:cornerRadius="20dp" />
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:gravity="center"
+        android:orientation="horizontal">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnShare"
-        android:layout_width="match_parent"
-        android:layout_height="54dp"
-        android:layout_marginTop="10dp"
-        android:backgroundTint="@color/ai_surface_variant"
-        android:text="@string/share_button"
-        android:textColor="@color/ai_text_primary"
-        android:textSize="15sp"
-        app:cornerRadius="18dp" />
+        <!-- SHARE -->
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnDelete"
-        android:layout_width="match_parent"
-        android:layout_height="50dp"
-        android:layout_marginTop="8dp"
-        android:backgroundTint="@color/ai_background"
-        android:text="@string/delete_button"
-        android:textColor="@color/ai_danger"
-        android:textSize="14sp"
-        app:cornerRadius="18dp" />
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/btnShare"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:background="@drawable/bg_icon_button"
+            android:contentDescription="@string/share_button"
+            android:padding="15dp"
+            android:scaleType="centerInside"
+            app:srcCompat="@drawable/ic_share_24"
+            app:tint="@color/ai_text_primary" />
+
+        <!-- PLAY / PAUSE -->
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/btnPlay"
+            android:layout_width="82dp"
+            android:layout_height="82dp"
+            android:layout_marginStart="24dp"
+            android:layout_marginEnd="24dp"
+            android:background="@drawable/bg_player_play"
+            android:contentDescription="@string/player_play_description"
+            android:padding="25dp"
+            android:scaleType="centerInside"
+            app:srcCompat="@drawable/ic_play_24"
+            app:tint="@color/ai_on_primary" />
+
+        <!-- DELETE -->
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/btnDelete"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:background="@drawable/bg_icon_button"
+            android:contentDescription="@string/delete_button"
+            android:padding="15dp"
+            android:scaleType="centerInside"
+            app:srcCompat="@drawable/ic_delete_24"
+            app:tint="@color/ai_danger" />
+
+    </LinearLayout>
 
 </LinearLayout>

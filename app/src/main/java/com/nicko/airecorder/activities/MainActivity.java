@@ -25,6 +25,7 @@ import com.nicko.airecorder.controller.RecordingController;
 import com.nicko.airecorder.manager.ShareManager;
 import com.nicko.airecorder.manager.DialogManager;
 import com.nicko.airecorder.R;
+import com.nicko.airecorder.utils.SystemBarsManager;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -48,6 +49,11 @@ public class MainActivity extends AppCompatActivity {
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        SystemBarsManager.apply(
+                this,
+                binding.getRoot()
+        );
 
         viewModel =
                 new ViewModelProvider(this)
@@ -74,7 +80,8 @@ public class MainActivity extends AppCompatActivity {
         recordListController =
                 new RecordListController(
                         viewModel,
-                        adapter
+                        adapter,
+                        binding.emptyState
                 );
 
         recordingController =

@@ -3,11 +3,13 @@ package com.nicko.airecorder.manager;
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.widget.EditText;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.ContextCompat;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.textfield.TextInputEditText;
 import com.nicko.airecorder.R;
 
 public class DialogManager {
@@ -40,79 +42,191 @@ public class DialogManager {
         this.context = context;
     }
 
+    /*
+     * =========================================================
+     * RENAME
+     * =========================================================
+     */
+
     public void showRenameDialog(
             String currentTitle,
             RenameListener listener
     ) {
 
-        EditText editText =
-                new EditText(context);
+        View view =
+                LayoutInflater
+                        .from(context)
+                        .inflate(
+                                R.layout.dialog_rename_record,
+                                null,
+                                false
+                        );
 
-        editText.setText(
-                currentTitle
+        TextInputEditText editText =
+                view.findViewById(
+                        R.id.editRecordTitle
+                );
+
+        if (currentTitle != null) {
+
+            editText.setText(
+                    currentTitle
+            );
+
+            editText.setSelection(
+                    editText.length()
+            );
+        }
+
+        AlertDialog dialog =
+                new MaterialAlertDialogBuilder(
+                        context
+                )
+
+                        .setTitle(
+                                R.string.rename_title
+                        )
+
+                        .setView(
+                                view
+                        )
+
+                        .setPositiveButton(
+                                R.string.rename_save,
+                                null
+                        )
+
+                        .setNegativeButton(
+                                R.string.rename_cancel,
+                                null
+                        )
+
+                        .create();
+
+        dialog.setOnShowListener(
+                ignored -> {
+
+                    dialog
+                            .getButton(
+                                    AlertDialog.BUTTON_POSITIVE
+                            )
+                            .setTextColor(
+
+                                    ContextCompat.getColor(
+                                            context,
+                                            R.color.ai_primary_light
+                                    )
+                            );
+
+                    dialog
+                            .getButton(
+                                    AlertDialog.BUTTON_POSITIVE
+                            )
+                            .setOnClickListener(
+                                    v -> {
+
+                                        String title =
+                                                editText
+                                                        .getText()
+                                                        == null
+                                                        ? ""
+                                                        : editText
+                                                        .getText()
+                                                        .toString()
+                                                        .trim();
+
+                                        /*
+                                         * Пустое название не закрывает
+                                         * диалог.
+                                         *
+                                         * MainActivity также оставляет
+                                         * собственную валидацию.
+                                         */
+                                        if (title.isEmpty()) {
+
+                                            return;
+                                        }
+
+                                        listener.onRename(
+                                                title
+                                        );
+
+                                        dialog.dismiss();
+                                    }
+                            );
+                }
         );
 
-        new AlertDialog.Builder(context)
+        dialog.show();
 
-                .setTitle(
-                        R.string.rename_title
-                )
-
-                .setView(
-                        editText
-                )
-
-                .setPositiveButton(
-                        R.string.rename_save,
-                        (dialog, which) -> {
-
-                            String title =
-                                    editText
-                                            .getText()
-                                            .toString()
-                                            .trim();
-
-                            listener.onRename(
-                                    title
-                            );
-                        }
-                )
-
-                .setNegativeButton(
-                        R.string.rename_cancel,
-                        null
-                )
-
-                .show();
+        editText.requestFocus();
     }
+
+    /*
+     * =========================================================
+     * DELETE
+     * =========================================================
+     */
 
     public void showDeleteDialog(
             DeleteListener listener
     ) {
 
-        new AlertDialog.Builder(context)
-
-                .setTitle(
-                        R.string.delete_title
+        AlertDialog dialog =
+                new MaterialAlertDialogBuilder(
+                        context
                 )
 
-                .setMessage(
-                        R.string.delete_message
-                )
+                        .setIcon(
+                                R.drawable.ic_delete_24
+                        )
 
-                .setPositiveButton(
-                        R.string.delete_confirm,
-                        (dialog, which) ->
-                                listener.onDelete()
-                )
+                        .setTitle(
+                                R.string.delete_title
+                        )
 
-                .setNegativeButton(
-                        R.string.rename_cancel,
-                        null
-                )
+                        .setMessage(
+                                R.string.delete_message
+                        )
 
-                .show();
+                        .setNegativeButton(
+                                R.string.rename_cancel,
+                                null
+                        )
+
+                        .setPositiveButton(
+                                R.string.delete_confirm,
+                                (ignored, which) ->
+                                        listener.onDelete()
+                        )
+
+                        .create();
+
+        dialog.setOnShowListener(
+                ignored -> {
+
+                    dialog
+                            .getButton(
+                                    AlertDialog.BUTTON_POSITIVE
+                            )
+                            .setTextColor(
+
+                                    ContextCompat.getColor(
+                                            context,
+                                            R.color.ai_danger
+                                    )
+                            );
+                }
+        );
+
+        dialog.show();
     }
+
+    /*
+     * =========================================================
+     * RECORD ACTIONS BOTTOM SHEET
+     * =========================================================
+     */
 
     public void showRecordActions(
             RecordActionsListener listener
@@ -151,26 +265,32 @@ public class DialogManager {
                         R.id.actionDelete
                 );
 
-        actionRename.setOnClickListener(v -> {
+        actionRename.setOnClickListener(
+                v -> {
 
-            dialog.dismiss();
+                    dialog.dismiss();
 
-            listener.onRename();
-        });
+                    listener.onRename();
+                }
+        );
 
-        actionShare.setOnClickListener(v -> {
+        actionShare.setOnClickListener(
+                v -> {
 
-            dialog.dismiss();
+                    dialog.dismiss();
 
-            listener.onShare();
-        });
+                    listener.onShare();
+                }
+        );
 
-        actionDelete.setOnClickListener(v -> {
+        actionDelete.setOnClickListener(
+                v -> {
 
-            dialog.dismiss();
+                    dialog.dismiss();
 
-            listener.onDelete();
-        });
+                    listener.onDelete();
+                }
+        );
 
         dialog.show();
     }

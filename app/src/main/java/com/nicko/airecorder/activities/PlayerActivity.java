@@ -17,10 +17,12 @@ import com.nicko.airecorder.manager.ShareManager;
 import com.nicko.airecorder.utils.WaveformCache;
 import com.nicko.airecorder.utils.WaveformExtractor;
 import com.nicko.airecorder.viewmodel.RecordViewModel;
+import com.nicko.airecorder.utils.SystemBarsManager;
 
 import java.io.File;
 
-public class PlayerActivity extends AppCompatActivity {
+public class PlayerActivity
+        extends AppCompatActivity {
 
     private ActivityPlayerBinding binding;
 
@@ -33,7 +35,9 @@ public class PlayerActivity extends AppCompatActivity {
     private DialogManager dialogManager;
 
     private final Handler handler =
-            new Handler(Looper.getMainLooper());
+            new Handler(
+                    Looper.getMainLooper()
+            );
 
     private final Runnable updateRunnable =
             this::updateSeek;
@@ -43,7 +47,9 @@ public class PlayerActivity extends AppCompatActivity {
     private long recordId;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(
+            Bundle savedInstanceState
+    ) {
 
         super.onCreate(savedInstanceState);
 
@@ -52,11 +58,19 @@ public class PlayerActivity extends AppCompatActivity {
                         getLayoutInflater()
                 );
 
-        setContentView(binding.getRoot());
+        setContentView(
+                binding.getRoot()
+        );
+        SystemBarsManager.apply(
+                this,
+                binding.getRoot()
+        );
 
         viewModel =
                 new ViewModelProvider(this)
-                        .get(RecordViewModel.class);
+                        .get(
+                                RecordViewModel.class
+                        );
 
         playerController =
                 new PlayerController();
@@ -73,12 +87,12 @@ public class PlayerActivity extends AppCompatActivity {
                                 "filePath"
                         );
 
-        if (filePath == null || filePath.isEmpty()) {
+        if (filePath == null
+                || filePath.isEmpty()) {
 
             finish();
 
             return;
-
         }
 
         recordId =
@@ -94,55 +108,31 @@ public class PlayerActivity extends AppCompatActivity {
                                 "title"
                         );
 
-        binding.txtTitle.setText(title);
+        if (title == null
+                || title.trim().isEmpty()) {
+
+            binding.txtTitle.setText(
+                    R.string.player_default_title
+            );
+
+        } else {
+
+            binding.txtTitle.setText(
+                    title
+            );
+        }
 
         preparePlayer();
 
         loadWaveform();
 
-        binding.btnPlay.setOnClickListener(v -> {
+        binding.btnPlay.setOnClickListener(v ->
+                handlePlayClick()
+        );
 
-            if (playerController.getPlayer() == null) {
-                return;
-            }
-
-            try {
-
-                if (playerController.isPlaying()) {
-
-                    playerController.pause();
-
-                    binding.btnPlay.setText(
-                            R.string.player_play
-                    );
-
-                    handler.removeCallbacks(
-                            updateRunnable
-                    );
-
-                } else {
-
-                    playerController.play();
-
-                    binding.btnPlay.setText(
-                            R.string.player_pause
-                    );
-
-                    updateSeek();
-
-                }
-
-            } catch (Exception e) {
-
-                showToast(
-                        getString(
-                                R.string.playback_error
-                        )
-                );
-
-            }
-
-        });
+        binding.btnBack.setOnClickListener(
+                v -> finish()
+        );
 
         binding.btnShare.setOnClickListener(v ->
                 shareRecord()
@@ -152,43 +142,101 @@ public class PlayerActivity extends AppCompatActivity {
                 deleteRecord()
         );
 
-        binding.seekBar.setOnSeekBarChangeListener(
+        binding.seekBar
+                .setOnSeekBarChangeListener(
 
-                new SeekBar.OnSeekBarChangeListener() {
+                        new SeekBar
+                                .OnSeekBarChangeListener() {
 
-                    @Override
-                    public void onProgressChanged(
-                            SeekBar seekBar,
-                            int progress,
-                            boolean fromUser
-                    ) {
+                            @Override
+                            public void onProgressChanged(
+                                    SeekBar seekBar,
+                                    int progress,
+                                    boolean fromUser
+                            ) {
 
-                        if (fromUser) {
+                                if (!fromUser) {
+                                    return;
+                                }
 
-                            playerController.seekTo(
-                                    progress
-                            );
+                                playerController.seekTo(
+                                        progress
+                                );
 
+                                updateTime();
+
+                                int duration =
+                                        playerController
+                                                .getDuration();
+
+                                if (duration > 0) {
+
+                                    binding.waveformView
+                                            .setProgress(
+                                                    (float) progress
+                                                            / duration
+                                            );
+                                }
+                            }
+
+                            @Override
+                            public void onStartTrackingTouch(
+                                    SeekBar seekBar
+                            ) {
+                            }
+
+                            @Override
+                            public void onStopTrackingTouch(
+                                    SeekBar seekBar
+                            ) {
+                            }
                         }
+                );
+    }
 
-                    }
+    private void handlePlayClick() {
 
-                    @Override
-                    public void onStartTrackingTouch(
-                            SeekBar seekBar
-                    ) {
-                    }
+        if (playerController.getPlayer()
+                == null) {
 
-                    @Override
-                    public void onStopTrackingTouch(
-                            SeekBar seekBar
-                    ) {
-                    }
+            return;
+        }
 
-                }
+        try {
 
-        );
+            if (playerController.isPlaying()) {
 
+                playerController.pause();
+
+                updatePlayButton(
+                        false
+                );
+
+                handler.removeCallbacks(
+                        updateRunnable
+                );
+
+                return;
+            }
+
+            playerController.play();
+
+            updatePlayButton(
+                    true
+            );
+
+            animatePlayButton();
+
+            updateSeek();
+
+        } catch (Exception e) {
+
+            showToast(
+                    getString(
+                            R.string.playback_error
+                    )
+            );
+        }
     }
 
     private void preparePlayer() {
@@ -209,16 +257,20 @@ public class PlayerActivity extends AppCompatActivity {
                                 mp.getDuration()
                         );
 
-                        binding.seekBar.setProgress(0);
+                        binding.seekBar.setProgress(
+                                0
+                        );
 
-                        binding.waveformView.setProgress(0);
+                        binding.waveformView
+                                .setProgress(
+                                        0
+                                );
 
-                        binding.btnPlay.setText(
-                                R.string.player_play
+                        updatePlayButton(
+                                false
                         );
 
                         updateTime();
-
                     },
 
                     mp -> {
@@ -227,20 +279,24 @@ public class PlayerActivity extends AppCompatActivity {
                             return;
                         }
 
-                        binding.btnPlay.setText(
-                                R.string.player_play
+                        updatePlayButton(
+                                false
                         );
 
-                        binding.seekBar.setProgress(0);
+                        binding.seekBar.setProgress(
+                                0
+                        );
 
-                        binding.waveformView.setProgress(0);
+                        binding.waveformView
+                                .setProgress(
+                                        0
+                                );
 
                         updateTime();
 
                         handler.removeCallbacks(
                                 updateRunnable
                         );
-
                     },
 
                     (mp, what, extra) -> {
@@ -251,8 +307,8 @@ public class PlayerActivity extends AppCompatActivity {
 
                         if (binding != null) {
 
-                            binding.btnPlay.setText(
-                                    R.string.player_play
+                            updatePlayButton(
+                                    false
                             );
 
                             showToast(
@@ -260,21 +316,78 @@ public class PlayerActivity extends AppCompatActivity {
                                             R.string.playback_error
                                     )
                             );
-
                         }
 
                         return true;
-
                     }
-
             );
 
         } catch (Exception e) {
 
             finish();
+        }
+    }
 
+    private void updatePlayButton(
+            boolean playing
+    ) {
+
+        if (binding == null) {
+            return;
         }
 
+        if (playing) {
+
+            binding.btnPlay.setImageResource(
+                    R.drawable.ic_pause_24
+            );
+
+            binding.btnPlay
+                    .setContentDescription(
+                            getString(
+                                    R.string.player_pause_description
+                            )
+                    );
+
+            return;
+        }
+
+        binding.btnPlay.setImageResource(
+                R.drawable.ic_play_24
+        );
+
+        binding.btnPlay
+                .setContentDescription(
+                        getString(
+                                R.string.player_play_description
+                        )
+                );
+    }
+
+    private void animatePlayButton() {
+
+        if (binding == null) {
+            return;
+        }
+
+        binding.btnPlay
+                .animate()
+                .cancel();
+
+        binding.btnPlay.setScaleX(
+                0.94f
+        );
+
+        binding.btnPlay.setScaleY(
+                0.94f
+        );
+
+        binding.btnPlay
+                .animate()
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(150L)
+                .start();
     }
 
     private void loadWaveform() {
@@ -282,16 +395,18 @@ public class PlayerActivity extends AppCompatActivity {
         int[] waveform =
                 WaveformCache
                         .getInstance()
-                        .get(filePath);
+                        .get(
+                                filePath
+                        );
 
         if (waveform != null) {
 
-            binding.waveformView.setWaveform(
-                    waveform
-            );
+            binding.waveformView
+                    .setWaveform(
+                            waveform
+                    );
 
             return;
-
         }
 
         WaveformExtractor extractor =
@@ -299,13 +414,16 @@ public class PlayerActivity extends AppCompatActivity {
 
         extractor.extract(
 
-                new File(filePath),
+                new File(
+                        filePath
+                ),
 
                 result -> {
 
                     if (binding == null
                             || isFinishing()
                             || isDestroyed()) {
+
                         return;
                     }
 
@@ -316,14 +434,12 @@ public class PlayerActivity extends AppCompatActivity {
                                     result
                             );
 
-                    binding.waveformView.setWaveform(
-                            result
-                    );
-
+                    binding.waveformView
+                            .setWaveform(
+                                    result
+                            );
                 }
-
         );
-
     }
 
     private void shareRecord() {
@@ -331,7 +447,6 @@ public class PlayerActivity extends AppCompatActivity {
         shareManager.share(
                 filePath
         );
-
     }
 
     private void deleteRecord() {
@@ -345,7 +460,9 @@ public class PlayerActivity extends AppCompatActivity {
             playerController.release();
 
             File file =
-                    new File(filePath);
+                    new File(
+                            filePath
+                    );
 
             if (file.exists()
                     && !file.delete()) {
@@ -357,7 +474,6 @@ public class PlayerActivity extends AppCompatActivity {
                 );
 
                 return;
-
             }
 
             if (recordId != -1) {
@@ -365,17 +481,16 @@ public class PlayerActivity extends AppCompatActivity {
                 viewModel.delete(
                         recordId
                 );
-
             }
 
             WaveformCache
                     .getInstance()
-                    .remove(filePath);
+                    .remove(
+                            filePath
+                    );
 
             finish();
-
         });
-
     }
 
     private void updateSeek() {
@@ -385,24 +500,25 @@ public class PlayerActivity extends AppCompatActivity {
         }
 
         int currentPosition =
-                playerController.getCurrentPosition();
+                playerController
+                        .getCurrentPosition();
 
         binding.seekBar.setProgress(
                 currentPosition
         );
 
         int duration =
-                playerController.getDuration();
+                playerController
+                        .getDuration();
 
         if (duration > 0) {
 
-            binding.waveformView.setProgress(
+            binding.waveformView
+                    .setProgress(
 
-                    (float) currentPosition
-                            / duration
-
-            );
-
+                            (float) currentPosition
+                                    / duration
+                    );
         }
 
         updateTime();
@@ -411,12 +527,13 @@ public class PlayerActivity extends AppCompatActivity {
                 updateRunnable,
                 300
         );
-
     }
 
     private void updateTime() {
 
-        if (playerController.getPlayer() == null) {
+        if (playerController.getPlayer()
+                == null) {
+
             return;
         }
 
@@ -438,18 +555,20 @@ public class PlayerActivity extends AppCompatActivity {
 
                         current / 60,
                         current % 60,
+
                         total / 60,
                         total % 60
-
                 )
-
         );
-
     }
 
-    private void showToast(String message) {
+    private void showToast(
+            String message
+    ) {
 
-        if (isFinishing() || isDestroyed()) {
+        if (isFinishing()
+                || isDestroyed()) {
+
             return;
         }
 
@@ -458,7 +577,6 @@ public class PlayerActivity extends AppCompatActivity {
                 message,
                 Toast.LENGTH_SHORT
         ).show();
-
     }
 
     @Override
@@ -472,16 +590,14 @@ public class PlayerActivity extends AppCompatActivity {
 
             updateTime();
 
-            binding.btnPlay.setText(
-                    R.string.player_play
+            updatePlayButton(
+                    false
             );
-
         }
 
         handler.removeCallbacks(
                 updateRunnable
         );
-
     }
 
     @Override
@@ -491,20 +607,18 @@ public class PlayerActivity extends AppCompatActivity {
 
         if (playerController.isPlaying()) {
 
-            binding.btnPlay.setText(
-                    R.string.player_pause
+            updatePlayButton(
+                    true
             );
 
             updateSeek();
 
         } else {
 
-            binding.btnPlay.setText(
-                    R.string.player_play
+            updatePlayButton(
+                    false
             );
-
         }
-
     }
 
     @Override
@@ -519,7 +633,5 @@ public class PlayerActivity extends AppCompatActivity {
         binding = null;
 
         super.onDestroy();
-
     }
-
 }

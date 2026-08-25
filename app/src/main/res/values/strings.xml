@@ -64,5 +64,15 @@
     <string name="play_record">Воспроизвести запись</string>
     <string name="record_more_actions">Действия с записью</string>
     <string name="record_actions_title">Действия с записью</string>
+    <!-- Player 2.0 -->
+    <string name="player_play_description">Воспроизвести</string>
+    <string name="player_pause_description">Пауза</string>
+    <!-- Empty state -->
+    <string name="empty_records_title">Записей пока нет</string>
+    <string name="empty_records_description">Нажмите кнопку записи ниже, чтобы создать первую аудиозапись.</string>
+
+    <!-- Rename dialog -->
+    <string name="rename_hint">Название записи</string>
+    <string name="back">Назад</string>
 
 </resources>

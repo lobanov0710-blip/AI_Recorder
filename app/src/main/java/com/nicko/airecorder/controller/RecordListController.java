@@ -1,5 +1,7 @@
 package com.nicko.airecorder.controller;
 
+import android.view.View;
+
 import androidx.lifecycle.LifecycleOwner;
 
 import com.nicko.airecorder.adapter.RecordAdapter;
@@ -16,32 +18,68 @@ public class RecordListController {
 
     private final RecordAdapter adapter;
 
+    private final View emptyState;
+
     public RecordListController(
             RecordViewModel viewModel,
-            RecordAdapter adapter
+            RecordAdapter adapter,
+            View emptyState
     ) {
 
         this.viewModel = viewModel;
+
         this.adapter = adapter;
 
+        this.emptyState = emptyState;
     }
 
-    public void observe(LifecycleOwner owner) {
+    public void observe(
+            LifecycleOwner owner
+    ) {
 
-        viewModel.getRecords().observe(owner, list -> {
+        viewModel
+                .getRecords()
+                .observe(
+                        owner,
+                        list -> {
 
-            adapter.submitList(
+                            List<RecordItem> items =
+                                    convertToItems(
+                                            list
+                                    );
 
-                    convertToItems(list)
+                            adapter.submitList(
+                                    items
+                            );
 
-            );
-
-        });
-
+                            updateEmptyState(
+                                    items.isEmpty()
+                            );
+                        }
+                );
     }
-    private List<RecordItem> convertToItems(List<RecordEntity> entities) {
 
-        List<RecordItem> items = new ArrayList<>();
+    private void updateEmptyState(
+            boolean isEmpty
+    ) {
+
+        if (emptyState == null) {
+            return;
+        }
+
+        emptyState.setVisibility(
+                isEmpty
+                        ? View.VISIBLE
+                        : View.GONE
+        );
+    }
+
+    private List<RecordItem> convertToItems(
+            List<RecordEntity> entities
+    ) {
+
+        List<RecordItem> items =
+                new ArrayList<>();
 
         if (entities == null) {
             return items;
@@ -64,15 +102,10 @@ public class RecordListController {
                             entity.getTitle(),
 
                             entity.getDuration()
-
                     )
-
             );
-
         }
 
         return items;
-
     }
-
 }
