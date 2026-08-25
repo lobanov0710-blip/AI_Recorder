@@ -2,61 +2,128 @@
 
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/ai_background"
     android:orientation="vertical"
-    android:padding="20dp">
+    android:paddingStart="20dp"
+    android:paddingTop="24dp"
+    android:paddingEnd="20dp"
+    android:paddingBottom="20dp">
+
+    <!-- =====================================================
+         HEADER
+         ===================================================== -->
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/player_subtitle"
+        android:textColor="@color/ai_primary_light"
+        android:textSize="13sp"
+        android:textStyle="bold" />
 
     <TextView
         android:id="@+id/txtTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center"
+        android:layout_marginTop="8dp"
+        android:ellipsize="end"
+        android:maxLines="2"
         android:text="@string/player_default_title"
-        android:textSize="20sp"
+        android:textColor="@color/ai_text_primary"
+        android:textSize="28sp"
         android:textStyle="bold" />
 
     <TextView
         android:id="@+id/txtTime"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="center"
+        android:layout_marginTop="10dp"
         android:text="@string/player_initial_time"
-        android:textSize="16sp" />
+        android:textColor="@color/ai_text_secondary"
+        android:textSize="14sp" />
 
-    <com.nicko.airecorder.view.WaveformView
-        android:id="@+id/waveformView"
+    <!-- =====================================================
+         WAVEFORM CARD
+         ===================================================== -->
+
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
-        android:layout_height="110dp"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="16dp" />
+        android:layout_height="0dp"
+        android:layout_marginTop="28dp"
+        android:layout_weight="1"
+        app:cardBackgroundColor="@color/ai_surface"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/ai_outline"
+        app:strokeWidth="1dp">
 
-    <SeekBar
-        android:id="@+id/seekBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="18dp">
 
-    <Button
+            <com.nicko.airecorder.view.WaveformView
+                android:id="@+id/waveformView"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <SeekBar
+                android:id="@+id/seekBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:maxHeight="3dp"
+                android:minHeight="3dp"
+                android:progressBackgroundTint="@color/ai_seek_track"
+                android:progressTint="@color/ai_primary"
+                android:thumbTint="@color/ai_primary" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- =====================================================
+         PLAYER CONTROLS
+         ===================================================== -->
+
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btnPlay"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:text="@string/player_play_initial" />
+        android:layout_height="58dp"
+        android:layout_marginTop="18dp"
+        android:backgroundTint="@color/ai_primary"
+        android:text="@string/player_play_initial"
+        android:textColor="@color/ai_on_primary"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        app:cornerRadius="20dp" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btnShare"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="@string/share_button" />
+        android:layout_height="54dp"
+        android:layout_marginTop="10dp"
+        android:backgroundTint="@color/ai_surface_variant"
+        android:text="@string/share_button"
+        android:textColor="@color/ai_text_primary"
+        android:textSize="15sp"
+        app:cornerRadius="18dp" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btnDelete"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="@string/delete_button" />
+        android:layout_height="50dp"
+        android:layout_marginTop="8dp"
+        android:backgroundTint="@color/ai_background"
+        android:text="@string/delete_button"
+        android:textColor="@color/ai_danger"
+        android:textSize="14sp"
+        app:cornerRadius="18dp" />
 
 </LinearLayout>

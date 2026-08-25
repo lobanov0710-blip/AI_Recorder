@@ -11,6 +11,7 @@ import com.nicko.airecorder.viewmodel.RecordViewModel;
 public class RecordingController {
 
     private final ActivityMainBinding binding;
+
     private final RecordViewModel viewModel;
 
     public RecordingController(
@@ -19,77 +20,121 @@ public class RecordingController {
     ) {
 
         this.binding = binding;
+
         this.viewModel = viewModel;
-
     }
 
-    public void observe(LifecycleOwner owner) {
-
-        viewModel.getRecordingState().observe(owner, state -> {
-
-            switch (state) {
-
-                case IDLE:
-
-                    updateUi(
-                            R.string.record_start,
-                            false,
-                            false,
-                            true
-                    );
-
-                    break;
-
-                case RECORDING:
-
-                    updateUi(
-                            R.string.record_pause,
-                            true,
-                            true,
-                            false
-                    );
-
-                    break;
-
-                case PAUSED:
-
-                    updateUi(
-                            R.string.record_resume,
-                            true,
-                            true,
-                            false
-                    );
-
-                    break;
-            }
-
-        });
-
-    }
-
-    private void updateUi(
-            int buttonTextResId,
-            boolean showStop,
-            boolean showTimer,
-            boolean clearWaveform
+    public void observe(
+            LifecycleOwner owner
     ) {
 
-        binding.btnRecord.setText(buttonTextResId);
+        viewModel
+                .getRecordingState()
+                .observe(
+                        owner,
+                        state -> {
+
+                            switch (state) {
+
+                                case IDLE:
+
+                                    showIdleState();
+
+                                    break;
+
+                                case RECORDING:
+
+                                    showRecordingState();
+
+                                    break;
+
+                                case PAUSED:
+
+                                    showPausedState();
+
+                                    break;
+                            }
+
+                        }
+                );
+    }
+
+    private void showIdleState() {
+
+        binding.btnRecord.setText(
+                R.string.record_start
+        );
 
         binding.btnStop.setVisibility(
-                showStop ? View.VISIBLE : View.GONE
+                View.GONE
         );
 
         binding.txtRecordTime.setVisibility(
-                showTimer ? View.VISIBLE : View.GONE
+                View.GONE
         );
 
-        if (clearWaveform) {
+        binding.txtRecordingStatus.setVisibility(
+                View.GONE
+        );
 
-            binding.waveformView.clearWaveform();
+        binding.waveformView.setVisibility(
+                View.GONE
+        );
 
-        }
-
+        binding.waveformView.clearWaveform();
     }
 
+    private void showRecordingState() {
+
+        binding.btnRecord.setText(
+                R.string.record_pause
+        );
+
+        binding.btnStop.setVisibility(
+                View.VISIBLE
+        );
+
+        binding.txtRecordTime.setVisibility(
+                View.VISIBLE
+        );
+
+        binding.txtRecordingStatus.setText(
+                R.string.record_in_progress
+        );
+
+        binding.txtRecordingStatus.setVisibility(
+                View.VISIBLE
+        );
+
+        binding.waveformView.setVisibility(
+                View.VISIBLE
+        );
+    }
+
+    private void showPausedState() {
+
+        binding.btnRecord.setText(
+                R.string.record_resume
+        );
+
+        binding.btnStop.setVisibility(
+                View.VISIBLE
+        );
+
+        binding.txtRecordTime.setVisibility(
+                View.VISIBLE
+        );
+
+        binding.txtRecordingStatus.setText(
+                R.string.record_paused
+        );
+
+        binding.txtRecordingStatus.setVisibility(
+                View.VISIBLE
+        );
+
+        binding.waveformView.setVisibility(
+                View.VISIBLE
+        );
+    }
 }

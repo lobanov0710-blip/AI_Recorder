@@ -2,52 +2,163 @@
 
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/ai_background"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:paddingStart="20dp"
+    android:paddingTop="20dp"
+    android:paddingEnd="20dp"
+    android:paddingBottom="16dp">
 
-    <Button
-        android:id="@+id/btnRecord"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/record_start"
-        android:textAllCaps="false" />
-
-    <Button
-        android:id="@+id/btnStop"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/record_stop"
-        android:textAllCaps="false"
-        android:visibility="gone" />
+    <!-- =====================================================
+         HEADER
+         ===================================================== -->
 
     <TextView
-        android:id="@+id/txtRecordTime"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="center"
-        android:padding="12dp"
-        android:text="@string/time_zero"
-        android:textSize="20sp"
+        android:text="@string/app_name"
+        android:textColor="@color/ai_text_primary"
+        android:textSize="30sp"
         android:textStyle="bold"
-        android:visibility="gone" />
+        android:letterSpacing="-0.02" />
 
-    <com.nicko.airecorder.view.WaveformView
-        android:id="@+id/waveformView"
+    <TextView
         android:layout_width="match_parent"
-        android:layout_height="120dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="12dp" />
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:text="@string/records_subtitle"
+        android:textColor="@color/ai_text_secondary"
+        android:textSize="14sp"
+        android:lineSpacingExtra="2dp" />
+
+    <!-- =====================================================
+         RECORDINGS TITLE
+         ===================================================== -->
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:text="@string/records_title"
+        android:textColor="@color/ai_text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <!-- =====================================================
+         RECORDINGS LIST
+         ===================================================== -->
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerRecords"
         android:layout_width="match_parent"
         android:layout_height="0dp"
+        android:layout_marginTop="12dp"
         android:layout_weight="1"
         android:clipToPadding="false"
+        android:overScrollMode="never"
         android:paddingBottom="12dp" />
+
+    <!-- =====================================================
+         RECORDING PANEL
+         ===================================================== -->
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        app:cardBackgroundColor="@color/ai_surface"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/ai_outline"
+        app:strokeWidth="1dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Recording state -->
+
+            <TextView
+                android:id="@+id/txtRecordingStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/record_in_progress"
+                android:textColor="@color/ai_record"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <!-- Timer -->
+
+            <TextView
+                android:id="@+id/txtRecordTime"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center"
+                android:text="@string/time_zero"
+                android:textColor="@color/ai_text_primary"
+                android:textSize="38sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.02"
+                android:visibility="gone" />
+
+            <!-- Waveform -->
+
+            <com.nicko.airecorder.view.WaveformView
+                android:id="@+id/waveformView"
+                android:layout_width="match_parent"
+                android:layout_height="112dp"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="14dp"
+                android:visibility="gone" />
+
+            <!-- Controls -->
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRecord"
+                    android:layout_width="0dp"
+                    android:layout_height="58dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="@color/ai_primary"
+                    android:text="@string/record_start"
+                    android:textColor="@color/ai_on_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="20dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnStop"
+                    android:layout_width="0dp"
+                    android:layout_height="58dp"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="@color/ai_surface_variant"
+                    android:text="@string/record_stop"
+                    android:textColor="@color/ai_record"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    app:cornerRadius="20dp"
+                    app:strokeColor="@color/ai_outline"
+                    app:strokeWidth="1dp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
 
 </LinearLayout>

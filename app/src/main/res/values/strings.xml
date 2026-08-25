@@ -35,7 +35,7 @@
     <string name="microphone_permission_required">Для записи необходимо разрешение на использование микрофона</string>
 
     <!-- Recording UI -->
-    <string name="recording_indicator">🔴 %1$s</string>
+    <string name="recording_indicator">%1$s</string>
     <string name="time_zero">00:00</string>
 
     <!-- Notification -->
@@ -50,5 +50,14 @@
     <string name="player_initial_time">00:00 / 00:00</string>
     <string name="playback_error">Ошибка воспроизведения</string>
     <string name="player_time_format">%1$02d:%2$02d / %3$02d:%4$02d</string>
+
+    <!-- Premium UI -->
+    <string name="records_title">Ваши записи</string>
+    <string name="records_subtitle">Записывайте важное. Всё остальное сделает AI Recorder.</string>
+
+    <string name="recording_now">Запись</string>
+    <string name="recording_paused_label">На паузе</string>
+
+    <string name="player_subtitle">Воспроизведение</string>
 
 </resources>

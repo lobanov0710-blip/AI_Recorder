@@ -1,9 +1,41 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.AIRecorder" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+<?xml version="1.0" encoding="utf-8"?>
+
+<resources>
+
+    <style
+        name="Base.Theme.AIRecorder"
+        parent="Theme.Material3.DayNight.NoActionBar">
+
+        <item name="colorPrimary">@color/ai_primary</item>
+        <item name="colorOnPrimary">@color/ai_on_primary</item>
+
+        <item name="colorSecondary">@color/ai_primary_light</item>
+        <item name="colorOnSecondary">@color/ai_background</item>
+
+        <item name="colorSurface">@color/ai_surface</item>
+        <item name="colorOnSurface">@color/ai_text_primary</item>
+
+        <item name="colorSurfaceVariant">@color/ai_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/ai_text_secondary</item>
+
+        <item name="colorOutline">@color/ai_outline</item>
+
+        <item name="colorError">@color/ai_danger</item>
+        <item name="colorOnError">@color/ai_on_primary</item>
+
+        <item name="android:colorBackground">@color/ai_background</item>
+        <item name="android:windowBackground">@color/ai_background</item>
+
+        <item name="android:statusBarColor">@color/ai_background</item>
+        <item name="android:navigationBarColor">@color/ai_background</item>
+
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+
     </style>
 
-    <style name="Theme.AIRecorder" parent="Base.Theme.AIRecorder" />
+    <style
+        name="Theme.AIRecorder"
+        parent="Base.Theme.AIRecorder" />
+
 </resources>
