@@ -14,10 +14,10 @@ import com.nicko.airecorder.controller.PlayerController;
 import com.nicko.airecorder.databinding.ActivityPlayerBinding;
 import com.nicko.airecorder.manager.DialogManager;
 import com.nicko.airecorder.manager.ShareManager;
+import com.nicko.airecorder.utils.SystemBarsManager;
 import com.nicko.airecorder.utils.WaveformCache;
 import com.nicko.airecorder.utils.WaveformExtractor;
 import com.nicko.airecorder.viewmodel.RecordViewModel;
-import com.nicko.airecorder.utils.SystemBarsManager;
 
 import java.io.File;
 
@@ -53,6 +53,12 @@ public class PlayerActivity
 
         super.onCreate(savedInstanceState);
 
+        /*
+         * =====================================================
+         * VIEW BINDING
+         * =====================================================
+         */
+
         binding =
                 ActivityPlayerBinding.inflate(
                         getLayoutInflater()
@@ -61,10 +67,20 @@ public class PlayerActivity
         setContentView(
                 binding.getRoot()
         );
+
+        /*
+         * Edge-to-edge + system bars.
+         */
         SystemBarsManager.apply(
                 this,
                 binding.getRoot()
         );
+
+        /*
+         * =====================================================
+         * DEPENDENCIES
+         * =====================================================
+         */
 
         viewModel =
                 new ViewModelProvider(this)
@@ -81,6 +97,12 @@ public class PlayerActivity
         dialogManager =
                 new DialogManager(this);
 
+        /*
+         * =====================================================
+         * INTENT DATA
+         * =====================================================
+         */
+
         filePath =
                 getIntent()
                         .getStringExtra(
@@ -88,7 +110,7 @@ public class PlayerActivity
                         );
 
         if (filePath == null
-                || filePath.isEmpty()) {
+                || filePath.trim().isEmpty()) {
 
             finish();
 
@@ -122,25 +144,61 @@ public class PlayerActivity
             );
         }
 
+        /*
+         * =====================================================
+         * PLAYER
+         * =====================================================
+         */
+
         preparePlayer();
 
         loadWaveform();
 
-        binding.btnPlay.setOnClickListener(v ->
-                handlePlayClick()
-        );
+        /*
+         * =====================================================
+         * BACK
+         * =====================================================
+         */
 
         binding.btnBack.setOnClickListener(
                 v -> finish()
         );
 
-        binding.btnShare.setOnClickListener(v ->
-                shareRecord()
+        /*
+         * =====================================================
+         * PLAY / PAUSE
+         * =====================================================
+         */
+
+        binding.btnPlay.setOnClickListener(
+                v -> handlePlayClick()
         );
 
-        binding.btnDelete.setOnClickListener(v ->
-                deleteRecord()
+        /*
+         * =====================================================
+         * SHARE
+         * =====================================================
+         */
+
+        binding.btnShare.setOnClickListener(
+                v -> shareRecord()
         );
+
+        /*
+         * =====================================================
+         * DELETE
+         * =====================================================
+         */
+
+        binding.btnDelete.setOnClickListener(
+                v -> deleteRecord()
+        );
+
+        /*
+         * =====================================================
+         * SEEK BAR
+         * =====================================================
+         */
 
         binding.seekBar
                 .setOnSeekBarChangeListener(
@@ -173,6 +231,7 @@ public class PlayerActivity
 
                                     binding.waveformView
                                             .setProgress(
+
                                                     (float) progress
                                                             / duration
                                             );
@@ -183,16 +242,33 @@ public class PlayerActivity
                             public void onStartTrackingTouch(
                                     SeekBar seekBar
                             ) {
+
+                                /*
+                                 * Пока ничего дополнительно
+                                 * делать не требуется.
+                                 */
                             }
 
                             @Override
                             public void onStopTrackingTouch(
                                     SeekBar seekBar
                             ) {
+
+                                /*
+                                 * После ручного seek позиция
+                                 * уже установлена через
+                                 * onProgressChanged().
+                                 */
                             }
                         }
                 );
     }
+
+    /*
+     * =========================================================
+     * PLAY / PAUSE CLICK
+     * =========================================================
+     */
 
     private void handlePlayClick() {
 
@@ -204,6 +280,9 @@ public class PlayerActivity
 
         try {
 
+            /*
+             * PAUSE
+             */
             if (playerController.isPlaying()) {
 
                 playerController.pause();
@@ -212,13 +291,20 @@ public class PlayerActivity
                         false
                 );
 
+                updateTime();
+
                 handler.removeCallbacks(
                         updateRunnable
                 );
 
+                animatePlayButton();
+
                 return;
             }
 
+            /*
+             * PLAY / RESUME
+             */
             playerController.play();
 
             updatePlayButton(
@@ -239,6 +325,12 @@ public class PlayerActivity
         }
     }
 
+    /*
+     * =========================================================
+     * PREPARE PLAYER
+     * =========================================================
+     */
+
     private void preparePlayer() {
 
         try {
@@ -247,6 +339,9 @@ public class PlayerActivity
 
                     filePath,
 
+                    /*
+                     * PREPARED
+                     */
                     mp -> {
 
                         if (binding == null) {
@@ -261,10 +356,9 @@ public class PlayerActivity
                                 0
                         );
 
-                        binding.waveformView
-                                .setProgress(
-                                        0
-                                );
+                        binding.waveformView.setProgress(
+                                0f
+                        );
 
                         updatePlayButton(
                                 false
@@ -273,11 +367,18 @@ public class PlayerActivity
                         updateTime();
                     },
 
+                    /*
+                     * COMPLETED
+                     */
                     mp -> {
 
                         if (binding == null) {
                             return;
                         }
+
+                        handler.removeCallbacks(
+                                updateRunnable
+                        );
 
                         updatePlayButton(
                                 false
@@ -287,18 +388,16 @@ public class PlayerActivity
                                 0
                         );
 
-                        binding.waveformView
-                                .setProgress(
-                                        0
-                                );
+                        binding.waveformView.setProgress(
+                                0f
+                        );
 
                         updateTime();
-
-                        handler.removeCallbacks(
-                                updateRunnable
-                        );
                     },
 
+                    /*
+                     * ERROR
+                     */
                     (mp, what, extra) -> {
 
                         handler.removeCallbacks(
@@ -324,9 +423,21 @@ public class PlayerActivity
 
         } catch (Exception e) {
 
+            showToast(
+                    getString(
+                            R.string.playback_error
+                    )
+            );
+
             finish();
         }
     }
+
+    /*
+     * =========================================================
+     * PLAY BUTTON UI
+     * =========================================================
+     */
 
     private void updatePlayButton(
             boolean playing
@@ -349,20 +460,26 @@ public class PlayerActivity
                             )
                     );
 
-            return;
+        } else {
+
+            binding.btnPlay.setImageResource(
+                    R.drawable.ic_play_24
+            );
+
+            binding.btnPlay
+                    .setContentDescription(
+                            getString(
+                                    R.string.player_play_description
+                            )
+                    );
         }
-
-        binding.btnPlay.setImageResource(
-                R.drawable.ic_play_24
-        );
-
-        binding.btnPlay
-                .setContentDescription(
-                        getString(
-                                R.string.player_play_description
-                        )
-                );
     }
+
+    /*
+     * =========================================================
+     * BUTTON MICRO ANIMATION
+     * =========================================================
+     */
 
     private void animatePlayButton() {
 
@@ -375,11 +492,11 @@ public class PlayerActivity
                 .cancel();
 
         binding.btnPlay.setScaleX(
-                0.94f
+                0.92f
         );
 
         binding.btnPlay.setScaleY(
-                0.94f
+                0.92f
         );
 
         binding.btnPlay
@@ -390,20 +507,29 @@ public class PlayerActivity
                 .start();
     }
 
+    /*
+     * =========================================================
+     * WAVEFORM
+     * =========================================================
+     */
+
     private void loadWaveform() {
 
-        int[] waveform =
+        int[] cachedWaveform =
                 WaveformCache
                         .getInstance()
                         .get(
                                 filePath
                         );
 
-        if (waveform != null) {
+        /*
+         * Уже есть в памяти.
+         */
+        if (cachedWaveform != null) {
 
             binding.waveformView
                     .setWaveform(
-                            waveform
+                            cachedWaveform
                     );
 
             return;
@@ -427,6 +553,10 @@ public class PlayerActivity
                         return;
                     }
 
+                    if (result == null) {
+                        return;
+                    }
+
                     WaveformCache
                             .getInstance()
                             .put(
@@ -442,58 +572,97 @@ public class PlayerActivity
         );
     }
 
+    /*
+     * =========================================================
+     * SHARE
+     * =========================================================
+     */
+
     private void shareRecord() {
+
+        if (filePath == null
+                || filePath.trim().isEmpty()) {
+
+            return;
+        }
 
         shareManager.share(
                 filePath
         );
     }
 
+    /*
+     * =========================================================
+     * DELETE
+     * =========================================================
+     */
+
     private void deleteRecord() {
 
-        dialogManager.showDeleteDialog(() -> {
+        dialogManager.showDeleteDialog(
+                () -> {
 
-            handler.removeCallbacks(
-                    updateRunnable
-            );
-
-            playerController.release();
-
-            File file =
-                    new File(
-                            filePath
+                    handler.removeCallbacks(
+                            updateRunnable
                     );
 
-            if (file.exists()
-                    && !file.delete()) {
+                    /*
+                     * Освобождаем MediaPlayer перед
+                     * физическим удалением файла.
+                     */
+                    playerController.release();
 
-                showToast(
-                        getString(
-                                R.string.delete_error
-                        )
-                );
+                    File file =
+                            new File(
+                                    filePath
+                            );
 
-                return;
-            }
+                    if (file.exists()
+                            && !file.delete()) {
 
-            if (recordId != -1) {
+                        showToast(
+                                getString(
+                                        R.string.delete_error
+                                )
+                        );
 
-                viewModel.delete(
-                        recordId
-                );
-            }
+                        /*
+                         * Не удаляем запись из БД,
+                         * если физический файл
+                         * удалить не удалось.
+                         */
+                        return;
+                    }
 
-            WaveformCache
-                    .getInstance()
-                    .remove(
-                            filePath
-                    );
+                    if (recordId != -1) {
 
-            finish();
-        });
+                        viewModel.delete(
+                                recordId
+                        );
+                    }
+
+                    WaveformCache
+                            .getInstance()
+                            .remove(
+                                    filePath
+                            );
+
+                    finish();
+                }
+        );
     }
 
+    /*
+     * =========================================================
+     * UPDATE PLAYBACK POSITION
+     * =========================================================
+     */
+
     private void updateSeek() {
+
+        if (binding == null) {
+            return;
+        }
 
         if (!playerController.isPlaying()) {
             return;
@@ -503,21 +672,35 @@ public class PlayerActivity
                 playerController
                         .getCurrentPosition();
 
-        binding.seekBar.setProgress(
-                currentPosition
-        );
-
         int duration =
                 playerController
                         .getDuration();
 
+        binding.seekBar.setProgress(
+                currentPosition
+        );
+
         if (duration > 0) {
+
+            float progress =
+                    (float) currentPosition
+                            / duration;
+
+            /*
+             * Дополнительная защита.
+             */
+            progress =
+                    Math.max(
+                            0f,
+                            Math.min(
+                                    1f,
+                                    progress
+                            )
+                    );
 
             binding.waveformView
                     .setProgress(
-
-                            (float) currentPosition
-                                    / duration
+                            progress
                     );
         }
 
@@ -525,11 +708,21 @@ public class PlayerActivity
 
         handler.postDelayed(
                 updateRunnable,
-                300
+                300L
         );
     }
 
+    /*
+     * =========================================================
+     * TIME
+     * =========================================================
+     */
+
     private void updateTime() {
+
+        if (binding == null) {
+            return;
+        }
 
         if (playerController.getPlayer()
                 == null) {
@@ -554,13 +747,21 @@ public class PlayerActivity
                         R.string.player_time_format,
 
                         current / 60,
+
                         current % 60,
 
                         total / 60,
+
                         total % 60
                 )
         );
     }
+
+    /*
+     * =========================================================
+     * TOAST
+     * =========================================================
+     */
 
     private void showToast(
             String message
@@ -579,47 +780,63 @@ public class PlayerActivity
         ).show();
     }
 
+    /*
+     * =========================================================
+     * ACTIVITY PAUSE
+     * =========================================================
+     */
+
     @Override
     protected void onPause() {
 
         super.onPause();
+
+        handler.removeCallbacks(
+                updateRunnable
+        );
+
+        if (playerController == null) {
+            return;
+        }
 
         if (playerController.isPlaying()) {
 
             playerController.pause();
 
             updateTime();
-
-            updatePlayButton(
-                    false
-            );
         }
 
-        handler.removeCallbacks(
-                updateRunnable
+        updatePlayButton(
+                false
         );
     }
+
+    /*
+     * =========================================================
+     * ACTIVITY RESUME
+     * =========================================================
+     */
 
     @Override
     protected void onResume() {
 
         super.onResume();
 
-        if (playerController.isPlaying()) {
-
-            updatePlayButton(
-                    true
-            );
-
-            updateSeek();
-
-        } else {
-
-            updatePlayButton(
-                    false
-            );
-        }
+        /*
+         * При возвращении в Player
+         * воспроизведение автоматически
+         * не запускаем.
+         */
+        updatePlayButton(
+                false
+        );
     }
+
+    /*
+     * =========================================================
+     * DESTROY
+     * =========================================================
+     */
 
     @Override
     protected void onDestroy() {
@@ -628,7 +845,10 @@ public class PlayerActivity
                 updateRunnable
         );
 
-        playerController.release();
+        if (playerController != null) {
+
+            playerController.release();
+        }
 
         binding = null;
 
