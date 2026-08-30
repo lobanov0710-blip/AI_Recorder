@@ -63,6 +63,8 @@ dependencies {
 
     implementation(libs.room.runtime)
 
+    implementation(libs.core.splashscreen)
+
     annotationProcessor(
         libs.room.compiler
     )

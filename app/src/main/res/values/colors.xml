@@ -32,4 +32,6 @@
     <!-- Player -->
     <color name="ai_seek_track">#2A313B</color>
 
+    <color name="ai_splash_background">#07111B</color>
+
 </resources>

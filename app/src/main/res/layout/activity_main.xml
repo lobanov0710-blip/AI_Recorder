@@ -12,9 +12,12 @@
     android:paddingEnd="20dp"
     android:paddingBottom="16dp">
 
-    <!-- HEADER -->
+    <!-- ===================================================== -->
+    <!-- HEADER                                                -->
+    <!-- ===================================================== -->
 
     <TextView
+        android:id="@+id/txtAppTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/app_name"
@@ -23,6 +26,7 @@
         android:textStyle="bold" />
 
     <TextView
+        android:id="@+id/txtAppSubtitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="5dp"
@@ -40,15 +44,15 @@
         android:textSize="20sp"
         android:textStyle="bold" />
 
-    <!-- RECORDINGS -->
+    <!-- ===================================================== -->
+    <!-- RECORDINGS                                            -->
+    <!-- ===================================================== -->
 
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_marginTop="12dp"
         android:layout_weight="1">
-
-        <!-- RECORDINGS -->
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recyclerRecords"
@@ -58,7 +62,9 @@
             android:overScrollMode="never"
             android:paddingBottom="12dp" />
 
-        <!-- EMPTY STATE -->
+        <!-- ================================================= -->
+        <!-- EMPTY STATE                                       -->
+        <!-- ================================================= -->
 
         <LinearLayout
             android:id="@+id/emptyState"
@@ -70,17 +76,23 @@
             android:paddingEnd="32dp"
             android:visibility="gone">
 
-            <androidx.appcompat.widget.AppCompatImageView
-                android:layout_width="72dp"
-                android:layout_height="72dp"
-                android:background="@drawable/bg_empty_icon"
-                android:contentDescription="@null"
-                android:padding="22dp"
-                app:srcCompat="@drawable/ic_mic_24"
-                app:tint="@color/ai_primary_light" />
+            <FrameLayout
+                android:layout_width="76dp"
+                android:layout_height="76dp"
+                android:background="@drawable/bg_empty_icon">
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    app:srcCompat="@drawable/ic_mic_24"
+                    app:tint="@color/ai_primary_light" />
+
+            </FrameLayout>
 
             <TextView
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
                 android:gravity="center"
@@ -92,18 +104,20 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="7dp"
+                android:layout_marginTop="8dp"
                 android:gravity="center"
                 android:lineSpacingExtra="2dp"
                 android:text="@string/empty_records_description"
                 android:textColor="@color/ai_text_secondary"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
 
         </LinearLayout>
 
     </FrameLayout>
 
-    <!-- RECORDING PANEL -->
+    <!-- ===================================================== -->
+    <!-- RECORDING PANEL                                       -->
+    <!-- ===================================================== -->
 
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
@@ -125,7 +139,9 @@
             android:paddingEnd="18dp"
             android:paddingBottom="16dp">
 
-            <!-- STATE -->
+            <!-- ================================================= -->
+            <!-- RECORDING STATUS                                  -->
+            <!-- ================================================= -->
 
             <TextView
                 android:id="@+id/txtRecordingStatus"
@@ -138,7 +154,9 @@
                 android:textStyle="bold"
                 android:visibility="gone" />
 
-            <!-- TIMER -->
+            <!-- ================================================= -->
+            <!-- RECORD TIMER                                      -->
+            <!-- ================================================= -->
 
             <TextView
                 android:id="@+id/txtRecordTime"
@@ -152,7 +170,9 @@
                 android:textStyle="bold"
                 android:visibility="gone" />
 
-            <!-- WAVEFORM -->
+            <!-- ================================================= -->
+            <!-- LIVE WAVEFORM                                     -->
+            <!-- ================================================= -->
 
             <com.nicko.airecorder.view.WaveformView
                 android:id="@+id/waveformView"
@@ -162,7 +182,9 @@
                 android:layout_marginBottom="14dp"
                 android:visibility="gone" />
 
-            <!-- CONTROLS -->
+            <!-- ================================================= -->
+            <!-- CONTROLS                                          -->
+            <!-- ================================================= -->
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -170,7 +192,9 @@
                 android:gravity="center"
                 android:orientation="horizontal">
 
-                <!-- MAIN ACTION -->
+                <!-- ============================================= -->
+                <!-- MAIN RECORD / PAUSE / RESUME                  -->
+                <!-- ============================================= -->
 
                 <LinearLayout
                     android:layout_width="wrap_content"
@@ -186,13 +210,15 @@
                         android:contentDescription="@string/record_start"
                         android:padding="25dp"
                         android:scaleType="centerInside"
-                        app:srcCompat="@drawable/ic_mic_24" />
+                        app:srcCompat="@drawable/ic_mic_24"
+                        app:tint="@color/ai_on_primary" />
 
                     <TextView
                         android:id="@+id/txtRecordAction"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="9dp"
+                        android:gravity="center"
                         android:text="@string/record_start"
                         android:textColor="@color/ai_text_primary"
                         android:textSize="13sp"
@@ -200,7 +226,9 @@
 
                 </LinearLayout>
 
-                <!-- STOP -->
+                <!-- ============================================= -->
+                <!-- STOP                                          -->
+                <!-- ============================================= -->
 
                 <LinearLayout
                     android:id="@+id/stopContainer"
@@ -225,6 +253,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="9dp"
+                        android:gravity="center"
                         android:text="@string/record_stop"
                         android:textColor="@color/ai_text_secondary"
                         android:textSize="12sp" />
