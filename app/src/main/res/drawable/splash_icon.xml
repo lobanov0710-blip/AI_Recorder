@@ -17,7 +17,7 @@
         android:strokeLineJoin="round"
         android:strokeWidth="3.6" />
 
-    <!-- Central waveform -->
+    <!-- Waveform -->
 
     <path
         android:fillColor="@android:color/transparent"
@@ -54,7 +54,7 @@
         android:strokeLineCap="round"
         android:strokeWidth="2.8" />
 
-    <!-- Microphone support -->
+    <!-- Support -->
 
     <path
         android:fillColor="@android:color/transparent"
@@ -77,7 +77,7 @@
         android:strokeLineCap="round"
         android:strokeWidth="3.8" />
 
-    <!-- Side sound waves -->
+    <!-- Side waves -->
 
     <path
         android:fillColor="@android:color/transparent"
