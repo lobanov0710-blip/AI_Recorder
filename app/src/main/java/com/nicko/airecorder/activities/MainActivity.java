@@ -24,6 +24,7 @@ import com.nicko.airecorder.manager.ShareManager;
 import com.nicko.airecorder.model.RecordItem;
 import com.nicko.airecorder.model.RecordingState;
 import com.nicko.airecorder.receiver.RecordReceiver;
+import com.nicko.airecorder.utils.MotionUtils;
 import com.nicko.airecorder.utils.PermissionManager;
 import com.nicko.airecorder.utils.SystemBarsManager;
 import com.nicko.airecorder.viewmodel.RecordViewModel;
@@ -93,8 +94,8 @@ public class MainActivity extends AppCompatActivity {
     ) {
 
         /*
-         * SplashScreen должен быть установлен
-         * ДО super.onCreate().
+         * SplashScreen должен устанавливаться
+         * до super.onCreate().
          */
         SplashScreen splashScreen =
                 SplashScreen.installSplashScreen(
@@ -133,7 +134,7 @@ public class MainActivity extends AppCompatActivity {
 
         /*
          * =====================================================
-         * SPLASH EXIT ANIMATION
+         * SPLASH
          * =====================================================
          */
 
@@ -197,10 +198,6 @@ public class MainActivity extends AppCompatActivity {
                         adapter
                 );
 
-        /*
-         * Empty State подключён напрямую
-         * к RecordListController.
-         */
         recordListController =
                 new RecordListController(
                         viewModel,
@@ -210,7 +207,7 @@ public class MainActivity extends AppCompatActivity {
 
         /*
          * =====================================================
-         * RECORDING UI CONTROLLER
+         * RECORDING CONTROLLER
          * =====================================================
          */
 
@@ -275,21 +272,38 @@ public class MainActivity extends AppCompatActivity {
                 splashScreenView -> {
 
                     /*
-                     * Анимируем именно Splash icon,
-                     * а не весь MainActivity.
+                     * Если пользователь отключил системные
+                     * анимации — splash удаляем сразу.
+                     */
+                    if (!MotionUtils.areAnimationsEnabled(
+                            this
+                    )) {
+
+                        splashScreenView.remove();
+
+                        return;
+                    }
+
+                    /*
+                     * Сначала отменяем возможную
+                     * предыдущую animation.
                      */
                     splashScreenView
                             .getIconView()
                             .animate()
                             .cancel();
 
+                    /*
+                     * Небольшое увеличение +
+                     * плавное исчезновение.
+                     */
                     splashScreenView
                             .getIconView()
                             .animate()
-                            .scaleX(1.12f)
-                            .scaleY(1.12f)
+                            .scaleX(1.10f)
+                            .scaleY(1.10f)
                             .alpha(0f)
-                            .setDuration(260L)
+                            .setDuration(240L)
                             .withEndAction(
                                     splashScreenView::remove
                             )
@@ -311,8 +325,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         /*
-         * Не допускаем накопления старых
-         * ViewPropertyAnimator.
+         * Останавливаем предыдущие animator,
+         * если Activity была пересоздана.
          */
         binding.txtAppTitle
                 .animate()
@@ -323,8 +337,24 @@ public class MainActivity extends AppCompatActivity {
                 .cancel();
 
         /*
-         * Начальное состояние заголовка.
+         * Если системные анимации выключены,
+         * сразу показываем финальное состояние.
          */
+        if (!MotionUtils.areAnimationsEnabled(
+                this
+        )) {
+
+            resetHeaderTransform();
+
+            return;
+        }
+
+        /*
+         * =====================================================
+         * INITIAL STATE
+         * =====================================================
+         */
+
         binding.txtAppTitle.setAlpha(
                 0f
         );
@@ -333,9 +363,6 @@ public class MainActivity extends AppCompatActivity {
                 -18f
         );
 
-        /*
-         * Начальное состояние подзаголовка.
-         */
         binding.txtAppSubtitle.setAlpha(
                 0f
         );
@@ -345,27 +372,61 @@ public class MainActivity extends AppCompatActivity {
         );
 
         /*
-         * AI Recorder.
+         * =====================================================
+         * TITLE
+         * =====================================================
          */
+
         binding.txtAppTitle
                 .animate()
                 .alpha(1f)
                 .translationY(0f)
-                .setStartDelay(80L)
-                .setDuration(360L)
+                .setStartDelay(70L)
+                .setDuration(320L)
                 .start();
 
         /*
-         * Подзаголовок появляется
-         * немного позже.
+         * =====================================================
+         * SUBTITLE
+         * =====================================================
          */
+
         binding.txtAppSubtitle
                 .animate()
                 .alpha(1f)
                 .translationY(0f)
-                .setStartDelay(180L)
-                .setDuration(360L)
+                .setStartDelay(150L)
+                .setDuration(320L)
                 .start();
+    }
+
+    /*
+     * =========================================================
+     * RESET HEADER
+     * =========================================================
+     */
+
+    private void resetHeaderTransform() {
+
+        if (binding == null) {
+            return;
+        }
+
+        binding.txtAppTitle.setAlpha(
+                1f
+        );
+
+        binding.txtAppTitle.setTranslationY(
+                0f
+        );
+
+        binding.txtAppSubtitle.setAlpha(
+                1f
+        );
+
+        binding.txtAppSubtitle.setTranslationY(
+                0f
+        );
     }
 
     /*
@@ -411,15 +472,12 @@ public class MainActivity extends AppCompatActivity {
 
     /*
      * =========================================================
-     * PERMISSION FLOW
+     * PERMISSIONS
      * =========================================================
      */
 
     private void startRecordingWithPermissions() {
 
-        /*
-         * Microphone permission.
-         */
         if (!permissionManager
                 .hasAudioPermission()) {
 
@@ -429,12 +487,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        /*
-         * Android 13+ notification permission.
-         *
-         * Если permission ещё не запрошен,
-         * показываем системный запрос.
-         */
         if (permissionManager
                 .shouldRequestNotificationPermission()) {
 
@@ -464,10 +516,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        /*
-         * Очистить старый live waveform
-         * перед новой сессией.
-         */
         binding.waveformView
                 .clearWaveform();
 
@@ -549,16 +597,12 @@ public class MainActivity extends AppCompatActivity {
 
         registerRecordReceiver();
 
-        /*
-         * После возврата из background
-         * синхронизируем UI с RecordService.
-         */
         viewModel.requestRecordingState();
     }
 
     /*
      * =========================================================
-     * RECEIVER REGISTRATION
+     * RECORD RECEIVER
      * =========================================================
      */
 
@@ -635,7 +679,6 @@ public class MainActivity extends AppCompatActivity {
 
                                 binding.txtRecordTime
                                         .setText(
-
                                                 getString(
                                                         R.string.recording_indicator,
                                                         time
@@ -697,7 +740,7 @@ public class MainActivity extends AppCompatActivity {
 
     /*
      * =========================================================
-     * RECEIVER UNREGISTER
+     * UNREGISTER RECEIVER
      * =========================================================
      */
 
@@ -715,10 +758,6 @@ public class MainActivity extends AppCompatActivity {
 
         } catch (IllegalArgumentException ignored) {
 
-            /*
-             * Receiver уже мог быть снят системой/
-             * Activity lifecycle.
-             */
         }
 
         recordReceiver = null;
@@ -726,7 +765,7 @@ public class MainActivity extends AppCompatActivity {
 
     /*
      * =========================================================
-     * RECORD INTENT FILTER
+     * INTENT FILTER
      * =========================================================
      */
 
@@ -764,7 +803,7 @@ public class MainActivity extends AppCompatActivity {
 
     /*
      * =========================================================
-     * RECORD ADAPTER CALLBACKS
+     * ADAPTER CALLBACKS
      * =========================================================
      */
 
@@ -808,7 +847,7 @@ public class MainActivity extends AppCompatActivity {
 
     /*
      * =========================================================
-     * RECORD ACTIONS BOTTOM SHEET
+     * RECORD ACTIONS
      * =========================================================
      */
 
@@ -822,8 +861,7 @@ public class MainActivity extends AppCompatActivity {
 
         dialogManager.showRecordActions(
 
-                new DialogManager
-                        .RecordActionsListener() {
+                new DialogManager.RecordActionsListener() {
 
                     @Override
                     public void onRename() {
@@ -936,14 +974,8 @@ public class MainActivity extends AppCompatActivity {
                     String filePath =
                             item.getFilePath();
 
-                    /*
-                     * Если путь в БД повреждён,
-                     * удаляем хотя бы запись Room.
-                     */
                     if (filePath == null
-                            || filePath
-                            .trim()
-                            .isEmpty()) {
+                            || filePath.trim().isEmpty()) {
 
                         viewModel.delete(
                                 item.getId()
@@ -957,10 +989,6 @@ public class MainActivity extends AppCompatActivity {
                                     filePath
                             );
 
-                    /*
-                     * Если файл существует,
-                     * сначала физически удаляем его.
-                     */
                     if (file.exists()
                             && !file.delete()) {
 
@@ -973,10 +1001,6 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
-                    /*
-                     * После успешного удаления файла
-                     * удаляем строку из Room.
-                     */
                     viewModel.delete(
                             item.getId()
                     );
@@ -1064,16 +1088,14 @@ public class MainActivity extends AppCompatActivity {
     ) {
 
         if (requestCode
-                != PermissionManager
-                .REQUEST_RECORD_AUDIO) {
+                != PermissionManager.REQUEST_RECORD_AUDIO) {
 
             return;
         }
 
         if (grantResults.length > 0
                 && grantResults[0]
-                == PackageManager
-                .PERMISSION_GRANTED) {
+                == PackageManager.PERMISSION_GRANTED) {
 
             startRecordingWithPermissions();
 
@@ -1082,8 +1104,7 @@ public class MainActivity extends AppCompatActivity {
 
         showToast(
                 getString(
-                        R.string
-                                .microphone_permission_required
+                        R.string.microphone_permission_required
                 )
         );
     }
@@ -1099,19 +1120,11 @@ public class MainActivity extends AppCompatActivity {
     ) {
 
         if (requestCode
-                != PermissionManager
-                .REQUEST_POST_NOTIFICATIONS) {
+                != PermissionManager.REQUEST_POST_NOTIFICATIONS) {
 
             return;
         }
 
-        /*
-         * POST_NOTIFICATIONS не является
-         * разрешением на сам захват микрофона.
-         *
-         * После ответа пользователя продолжаем
-         * старт записи.
-         */
         startRecordingNow();
     }
 
@@ -1138,7 +1151,7 @@ public class MainActivity extends AppCompatActivity {
 
     /*
      * =========================================================
-     * UI STATE CHECK
+     * UI CHECK
      * =========================================================
      */
 
@@ -1159,12 +1172,6 @@ public class MainActivity extends AppCompatActivity {
 
         unregisterRecordReceiver();
 
-        /*
-         * Останавливаем только декоративные
-         * View animations.
-         *
-         * RecordService здесь НЕ останавливаем.
-         */
         if (binding != null) {
 
             binding.txtAppTitle

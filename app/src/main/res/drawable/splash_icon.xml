@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<vector
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Microphone -->
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,25 C44,25 38,32 38,42 L38,56 C38,66 44,72 54,72 C64,72 70,66 70,56 L70,42 C70,32 64,25 54,25 Z"
+        android:strokeColor="#45F0C1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="3.6" />
+
+    <!-- Central waveform -->
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M44,49 L44,57"
+        android:strokeColor="#52F4C5"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.8" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M49,44 L49,62"
+        android:strokeColor="#42E9D0"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.8" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,38 L54,67"
+        android:strokeColor="#38E3DC"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.8" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M59,44 L59,62"
+        android:strokeColor="#2AD7EA"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.8" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M64,49 L64,57"
+        android:strokeColor="#26CFF5"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.8" />
+
+    <!-- Microphone support -->
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M31,55 C31,70 40,79 54,79 C68,79 77,70 77,55"
+        android:strokeColor="#31E5D8"
+        android:strokeLineCap="round"
+        android:strokeWidth="3.8" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,79 L54,88"
+        android:strokeColor="#2DD9E7"
+        android:strokeLineCap="round"
+        android:strokeWidth="3.8" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M45,89 L63,89"
+        android:strokeColor="#2ACFF4"
+        android:strokeLineCap="round"
+        android:strokeWidth="3.8" />
+
+    <!-- Side sound waves -->
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M23,51 L23,59 M27,47 L27,63 M31,44 L31,66 M85,51 L85,59 M81,47 L81,63 M77,44 L77,66"
+        android:strokeColor="#32E1E1"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.2" />
+
+    <!-- AI circuit -->
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M59,32 L64,37 L64,44"
+        android:strokeColor="#22D8EE"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.8" />
+
+    <path
+        android:fillColor="#45F0C1"
+        android:pathData="M57,30 A2,2 0,1 0,61 30 A2,2 0,1 0,57 30" />
+
+</vector>

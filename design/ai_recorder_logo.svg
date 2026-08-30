@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="108"
+    height="108"
+    viewBox="0 0 108 108">
+
+    <!-- Microphone body -->
+
+    <path
+        d="M54 19
+           C42 19 34 27 34 39
+           L34 58
+           C34 70 42 78 54 78
+           C66 78 74 70 74 58
+           L74 39
+           C74 27 66 19 54 19 Z"
+        fill="none"
+        stroke="#45F0C1"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+    <!-- Inner waveform -->
+
+    <path d="M42 49 L42 58"
+        fill="none"
+        stroke="#52F4C5"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+    <path d="M48 43 L48 64"
+        fill="none"
+        stroke="#42E9D0"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+    <path d="M54 36 L54 69"
+        fill="none"
+        stroke="#38E3DC"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+    <path d="M60 43 L60 64"
+        fill="none"
+        stroke="#2AD7EA"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+    <path d="M66 49 L66 58"
+        fill="none"
+        stroke="#26CFF5"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+    <!-- Microphone support -->
+
+    <path
+        d="M27 57
+           C27 74 38 85 54 85
+           C70 85 81 74 81 57"
+        fill="none"
+        stroke="#31E5D8"
+        stroke-width="4"
+        stroke-linecap="round"/>
+
+    <path
+        d="M54 85 L54 94"
+        fill="none"
+        stroke="#2DD9E7"
+        stroke-width="4"
+        stroke-linecap="round"/>
+
+    <path
+        d="M43 95 L65 95"
+        fill="none"
+        stroke="#2ACFF4"
+        stroke-width="4"
+        stroke-linecap="round"/>
+
+    <!-- Left sound wave -->
+
+    <path
+        d="M13 54 L13 60
+           M18 49 L18 65
+           M23 44 L23 70"
+        fill="none"
+        stroke="#3BE8D5"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+    <!-- Right sound wave -->
+
+    <path
+        d="M95 54 L95 60
+           M90 49 L90 65
+           M85 44 L85 70"
+        fill="none"
+        stroke="#27D1F4"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+    <!-- AI circuit -->
+
+    <path
+        d="M61 28 L66 33 L66 42"
+        fill="none"
+        stroke="#22D8EE"
+        stroke-width="2"
+        stroke-linecap="round"/>
+
+    <circle
+        cx="61"
+        cy="26"
+        r="2"
+        fill="#45F0C1"/>
+
+</svg>

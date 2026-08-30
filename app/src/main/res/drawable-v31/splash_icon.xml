@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<animated-vector
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/splash_icon_base">
+
+    <target
+        android:name="logo_group"
+        android:animation="@animator/splash_logo_scale" />
+
+    <target
+        android:name="wave_group"
+        android:animation="@animator/splash_waveform_reveal" />
+
+    <target
+        android:name="side_waves"
+        android:animation="@animator/splash_side_waves" />
+
+    <target
+        android:name="ai_circuit"
+        android:animation="@animator/splash_ai_circuit" />
+
+    <target
+        android:name="ai_dot"
+        android:animation="@animator/splash_ai_dot" />
+
+</animated-vector>
