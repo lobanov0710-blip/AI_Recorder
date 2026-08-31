@@ -19,6 +19,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 public class AudioRecorder {
 
@@ -54,6 +55,36 @@ public class AudioRecorder {
 
     private static final long MICROSECONDS_PER_SECOND =
             1_000_000L;
+
+    /*
+     * =========================================================
+     * PCM QUEUE
+     * =========================================================
+     *
+     * Один chunk:
+     *
+     * 1024 samples × 2 bytes = 2048 bytes.
+     *
+     * 128 chunks:
+     *
+     * ≈ 256 KiB raw PCM
+     * ≈ 2.97 секунды аудио при 44.1 kHz.
+     *
+     * Очередь принципиально bounded:
+     * бесконтрольный рост heap больше невозможен.
+     */
+    private static final int PCM_QUEUE_CAPACITY =
+            128;
+
+    /*
+     * При normal Stop capture может обнаружить,
+     * что bounded queue полностью заполнена.
+     *
+     * Даём encoder небольшой срок освободить
+     * хотя бы один slot под END_CHUNK.
+     */
+    private static final long END_SIGNAL_TIMEOUT_MS =
+            500L;
 
     /*
      * =========================================================
@@ -110,23 +141,17 @@ public class AudioRecorder {
     /*
      * Только одна RecorderSession может быть активной.
      *
-     * Важно:
-     * AudioRecord / MediaCodec / MediaMuxer / queue / threads
-     * больше НЕ являются общими ресурсами AudioRecorder.
+     * Все media/native ресурсы принадлежат
+     * исключительно конкретной session.
      */
     private volatile RecorderSession currentSession;
 
     /*
      * Последний успешно финализированный файл.
      *
-     * RecordServiceController вызывает:
-     *
-     * stopRecording()
-     *     ↓
-     * getOutputFile()
-     *
-     * поэтому после очистки currentSession
-     * сохраняем ссылку на успешный output.
+     * После successful stop currentSession очищается,
+     * но RecordServiceController всё ещё должен
+     * получить output через getOutputFile().
      */
     private volatile File lastCompletedOutputFile;
 
@@ -153,7 +178,7 @@ public class AudioRecorder {
             if (existing != null) {
 
                 /*
-                 * Повторный START во время уже идущей записи
+                 * Повторный START во время уже активной записи
                  * оставляем idempotent.
                  */
                 if (existing.state == SessionState.PREPARING
@@ -164,10 +189,8 @@ public class AudioRecorder {
                 }
 
                 /*
-                 * Главное production-правило:
-                 *
-                 * пока старая session реально не закончилась,
-                 * новую запись не создаём.
+                 * Пока предыдущая session реально не завершилась,
+                 * следующая запись запрещена.
                  */
                 throw new IllegalStateException(
                         "Предыдущая запись ещё завершается"
@@ -222,12 +245,6 @@ public class AudioRecorder {
                     );
                 }
 
-                /*
-                 * Каждый worker получает конкретную session.
-                 *
-                 * Старый worker физически не сможет
-                 * обратиться к ресурсам новой записи.
-                 */
                 Thread newEncoderThread =
                         new Thread(
                                 () -> encoderLoop(session),
@@ -250,7 +267,7 @@ public class AudioRecorder {
                         SessionState.RECORDING;
 
                 /*
-                 * Encoder запускаем первым.
+                 * Encoder запускается первым.
                  * Он ждёт первый PCM chunk.
                  */
                 newEncoderThread.start();
@@ -317,8 +334,8 @@ public class AudioRecorder {
             /*
              * AudioRecord не останавливаем.
              *
-             * Capture продолжает обслуживать hardware buffer,
-             * но PCM во время Pause выбрасывается.
+             * Hardware buffer продолжает читаться,
+             * но PCM во время Pause не попадает в queue.
              */
             session.paused =
                     true;
@@ -439,19 +456,24 @@ public class AudioRecorder {
         if (!captureFinishedInTime) {
 
             /*
-             * Capture завис дольше допустимого.
-             *
-             * Запись уже не считаем безопасно финализируемой.
+             * Capture пережил timeout.
+             * Session больше не считается пригодной.
              */
             session.forceFailure =
                     true;
 
+            session.stopRequested =
+                    true;
+
             /*
-             * Encoder не должен бесконечно ждать END,
-             * если Capture не дошёл до своего finally.
+             * При failure не сохраняем накопленный PCM.
+             *
+             * Очищаем bounded queue и гарантированно
+             * посылаем encoder завершение.
              */
-            session.pcmQueue.offer(
-                    END_CHUNK
+            signalEndOfStream(
+                    session,
+                    true
             );
         }
 
@@ -473,16 +495,16 @@ public class AudioRecorder {
             session.forceFailure =
                     true;
 
-            /*
-             * На всякий случай ещё раз просим Capture
-             * прекратить чтение.
-             */
+            session.stopRequested =
+                    true;
+
             requestAudioRecordStop(
                     session
             );
 
-            session.pcmQueue.offer(
-                    END_CHUNK
+            signalEndOfStream(
+                    session,
+                    true
             );
         }
 
@@ -510,6 +532,7 @@ public class AudioRecorder {
         boolean success =
                 workersFinished
                         && !session.forceFailure
+                        && !session.queueOverflowed
                         && session.captureSuccess
                         && session.encoderSuccess
                         && fileValid;
@@ -524,14 +547,16 @@ public class AudioRecorder {
             Log.e(
                     TAG,
                     "Финализация RecorderSession завершилась с ошибкой"
+                            + ", queueOverflowed="
+                            + session.queueOverflowed
             );
 
             /*
-             * Если worker всё ещё жив —
+             * Если worker ещё жив —
              * файл здесь не удаляем.
              *
-             * Encoder удалит его после release собственных
-             * MediaCodec / MediaMuxer.
+             * Его собственный encoder worker
+             * удалит файл после release ресурсов.
              */
             if (workersFinished) {
 
@@ -558,13 +583,7 @@ public class AudioRecorder {
             } else {
 
                 /*
-                 * КРИТИЧЕСКИ ВАЖНО:
-                 *
-                 * не обнуляем currentSession.
-                 *
-                 * Пока старые workers реально живы,
-                 * следующая запись на этом AudioRecorder
-                 * будет запрещена.
+                 * Не теряем ссылку на незавершённую session.
                  */
                 session.state =
                         SessionState.STOPPING;
@@ -623,9 +642,21 @@ public class AudioRecorder {
                 if (readSamples > 0) {
 
                     /*
-                     * Pause проверяем ПОСЛЕ read.
+                     * STOP мог быть запрошен,
+                     * пока AudioRecord.read() был заблокирован.
                      *
-                     * Hardware buffer продолжает обслуживаться.
+                     * Такой последний chunk уже не добавляем.
+                     */
+                    if (session.stopRequested
+                            || session.forceFailure) {
+
+                        break;
+                    }
+
+                    /*
+                     * Pause проверяем после read,
+                     * чтобы hardware buffer постоянно
+                     * обслуживался.
                      */
                     if (session.paused) {
 
@@ -648,18 +679,34 @@ public class AudioRecorder {
                             );
 
                     /*
-                     * P0.1:
-                     * очередь пока намеренно остаётся unbounded.
+                     * P0.2:
                      *
-                     * Capacity / overflow policy будет P0.2.
+                     * НЕ используем put().
+                     * Capture никогда не должен блокироваться
+                     * из-за медленного MediaCodec.
+                     *
+                     * Если bounded queue переполнена —
+                     * вся RecorderSession считается failed.
                      */
-                    session.pcmQueue.put(
-                            new PcmChunk(
-                                    copy,
-                                    readSamples,
-                                    false
-                            )
-                    );
+                    boolean accepted =
+                            enqueuePcmChunk(
+                                    session,
+                                    new PcmChunk(
+                                            copy,
+                                            readSamples,
+                                            false
+                                    )
+                            );
+
+                    if (!accepted) {
+
+                        /*
+                         * Это normal stop race:
+                         * STOP был запрошен между read
+                         * и фактическим enqueue.
+                         */
+                        break;
+                    }
 
                     continue;
                 }
@@ -683,28 +730,6 @@ public class AudioRecorder {
             success =
                     true;
 
-        } catch (InterruptedException e) {
-
-            Thread.currentThread()
-                    .interrupt();
-
-            /*
-             * Normal STOP может interrupt'ить worker.
-             * Timeout/failure — уже нет.
-             */
-            success =
-                    session.stopRequested
-                            && !session.forceFailure;
-
-            if (!session.stopRequested) {
-
-                Log.e(
-                        TAG,
-                        "Capture thread прерван",
-                        e
-                );
-            }
-
         } catch (Exception e) {
 
             Log.e(
@@ -719,30 +744,41 @@ public class AudioRecorder {
         } finally {
 
             /*
-             * forceFailure имеет приоритет
-             * над обычным успешным выходом.
+             * forceFailure имеет приоритет.
              */
             session.captureSuccess =
                     success
-                            && !session.forceFailure;
+                            && !session.forceFailure
+                            && !session.queueOverflowed;
+
+            if (!session.captureSuccess) {
+
+                session.stopRequested =
+                        true;
+
+                session.forceFailure =
+                        true;
+            }
 
             stopAndReleaseAudioRecord(
                     session
             );
 
             /*
-             * END всегда должен идти после PCM,
-             * когда Capture завершился штатно.
+             * При normal stop:
+             *
+             * PCM chunks должны остаться в очереди,
+             * END ставится строго после них.
+             *
+             * При failure:
+             *
+             * pending PCM больше не нужен,
+             * очередь очищается и encoder завершается.
              */
-            session.pcmQueue.offer(
-                    END_CHUNK
+            signalEndOfStream(
+                    session,
+                    !session.captureSuccess
             );
-
-            if (!session.captureSuccess) {
-
-                session.stopRequested =
-                        true;
-            }
 
             session.captureFinished =
                     true;
@@ -757,7 +793,236 @@ public class AudioRecorder {
                             + session.captureSuccess
                             + ", queue="
                             + session.pcmQueue.size()
+                            + ", queueOverflowed="
+                            + session.queueOverflowed
             );
+        }
+    }
+
+    /*
+     * =========================================================
+     * PCM ENQUEUE
+     * =========================================================
+     */
+
+    private boolean enqueuePcmChunk(
+            RecorderSession session,
+            PcmChunk chunk
+    ) throws IOException {
+
+        synchronized (session.endSignalLock) {
+
+            /*
+             * Не допускаем PCM после логического END.
+             *
+             * Также normal stop между AudioRecord.read()
+             * и enqueue не является ошибкой.
+             */
+            if (session.endSignalSent
+                    || session.stopRequested
+                    || session.forceFailure) {
+
+                return false;
+            }
+
+            /*
+             * offer() НЕ блокирует capture thread.
+             */
+            boolean accepted =
+                    session.pcmQueue.offer(
+                            chunk
+                    );
+
+            if (accepted) {
+
+                return true;
+            }
+
+            /*
+             * =================================================
+             * QUEUE OVERFLOW
+             * =================================================
+             *
+             * Silent PCM drop запрещён.
+             *
+             * Не выбрасываем oldest/newest chunk и не создаём
+             * внешне "успешный" файл с дырой в речи.
+             *
+             * Вся session становится failed.
+             */
+            session.queueOverflowed =
+                    true;
+
+            session.forceFailure =
+                    true;
+
+            session.stopRequested =
+                    true;
+
+            Log.e(
+                    TAG,
+                    "PCM queue overflow. capacity="
+                            + PCM_QUEUE_CAPACITY
+                            + ", size="
+                            + session.pcmQueue.size()
+            );
+
+            throw new IOException(
+                    "PCM queue overflow"
+            );
+        }
+    }
+
+    /*
+     * =========================================================
+     * QUEUE END SIGNAL
+     * =========================================================
+     */
+
+    private void signalEndOfStream(
+            RecorderSession session,
+            boolean force
+    ) {
+
+        synchronized (session.endSignalLock) {
+
+            /*
+             * Один RecorderSession получает
+             * максимум один логический END.
+             */
+            if (session.endSignalSent) {
+
+                if (force) {
+
+                    session.forceFailure =
+                            true;
+
+                    session.stopRequested =
+                            true;
+                }
+
+                return;
+            }
+
+            boolean delivered =
+                    false;
+
+            /*
+             * =================================================
+             * NORMAL FINALIZATION
+             * =================================================
+             *
+             * Сначала пытаемся сохранить ВСЕ PCM chunks.
+             *
+             * Если queue заполнена, encoder получает
+             * небольшой срок освободить один slot.
+             */
+            if (!force
+                    && !session.forceFailure) {
+
+                try {
+
+                    delivered =
+                            session.pcmQueue.offer(
+                                    END_CHUNK,
+                                    END_SIGNAL_TIMEOUT_MS,
+                                    TimeUnit.MILLISECONDS
+                            );
+
+                } catch (InterruptedException e) {
+
+                    Thread.currentThread()
+                            .interrupt();
+
+                    session.forceFailure =
+                            true;
+
+                    session.stopRequested =
+                            true;
+
+                    Log.e(
+                            TAG,
+                            "Ожидание slot под END_CHUNK прервано",
+                            e
+                    );
+                }
+
+                if (!delivered
+                        && !session.forceFailure) {
+
+                    /*
+                     * Queue оставалась полной весь timeout.
+                     *
+                     * Это означает критическое отставание encoder.
+                     */
+                    session.queueOverflowed =
+                            true;
+
+                    session.forceFailure =
+                            true;
+
+                    session.stopRequested =
+                            true;
+
+                    Log.e(
+                            TAG,
+                            "PCM queue не освободила slot под END_CHUNK за "
+                                    + END_SIGNAL_TIMEOUT_MS
+                                    + " ms"
+                    );
+                }
+            }
+
+            /*
+             * =================================================
+             * FAILURE FINALIZATION
+             * =================================================
+             *
+             * Запись уже считается failed.
+             *
+             * Поэтому pending PCM можно удалить:
+             * файл всё равно не будет сохранён в Room.
+             */
+            if (!delivered) {
+
+                session.forceFailure =
+                        true;
+
+                session.stopRequested =
+                        true;
+
+                session.pcmQueue.clear();
+
+                delivered =
+                        session.pcmQueue.offer(
+                                END_CHUNK
+                        );
+            }
+
+            if (delivered) {
+
+                session.endSignalSent =
+                        true;
+
+            } else {
+
+                /*
+                 * При capacity > 0 после clear()
+                 * сюда практически невозможно попасть.
+                 *
+                 * Но failure фиксируем явно.
+                 */
+                session.forceFailure =
+                        true;
+
+                session.stopRequested =
+                        true;
+
+                Log.e(
+                        TAG,
+                        "Не удалось передать END_CHUNK encoder thread"
+                );
+            }
         }
     }
 
@@ -800,10 +1065,11 @@ public class AudioRecorder {
             }
 
             /*
-             * Если stop timeout уже признал session failed,
-             * больше не пытаемся считать её успешной.
+             * Любой overflow/failure запрещает
+             * успешную финализацию M4A.
              */
-            if (session.forceFailure) {
+            if (session.forceFailure
+                    || session.queueOverflowed) {
 
                 throw new IOException(
                         "RecorderSession принудительно завершена"
@@ -875,7 +1141,8 @@ public class AudioRecorder {
             }
 
             /*
-             * Освобождаются ТОЛЬКО ресурсы этой session.
+             * Освобождаются только ресурсы
+             * конкретной RecorderSession.
              */
             releaseEncoder(
                     session
@@ -895,7 +1162,8 @@ public class AudioRecorder {
                     pipelineSuccess
                             && muxerSuccess
                             && fileValid
-                            && !session.forceFailure;
+                            && !session.forceFailure
+                            && !session.queueOverflowed;
 
             if (!session.encoderSuccess) {
 
@@ -921,6 +1189,8 @@ public class AudioRecorder {
                             + samplesToTimeUs(
                             session.totalPcmSamples
                     )
+                            + ", queueOverflowed="
+                            + session.queueOverflowed
             );
         }
     }
@@ -1748,7 +2018,7 @@ public class AudioRecorder {
          * Сохраняем ссылку до configure/start.
          *
          * Если configure/start завершится ошибкой,
-         * cleanup всё равно сможет release codec.
+         * cleanup сможет release codec.
          */
         synchronized (session.resourceLock) {
 
@@ -2087,11 +2357,15 @@ public class AudioRecorder {
         );
 
         /*
-         * Если encoder уже успел стартовать —
-         * даём ему возможность выйти.
+         * При start failure файл в любом случае
+         * нельзя сохранять.
+         *
+         * Поэтому очередь очищаем и encoder
+         * завершаем сразу.
          */
-        session.pcmQueue.offer(
-                END_CHUNK
+        signalEndOfStream(
+                session,
+                true
         );
 
         boolean captureDone =
@@ -2107,12 +2381,6 @@ public class AudioRecorder {
                         ENCODER_JOIN_TIMEOUT_MS,
                         "encoder-start-failure"
                 );
-
-        /*
-         * Если конкретный worker вообще не стартовал
-         * или уже завершён — cleanup его ресурса
-         * выполняем здесь.
-         */
 
         if (captureDone
                 && !isThreadAlive(
@@ -2207,10 +2475,8 @@ public class AudioRecorder {
         )) {
 
             /*
-             * Теоретически state TERMINATED без завершённых
-             * workers быть не должен.
-             *
-             * Но новый START всё равно не разрешаем.
+             * TERMINATED при живых worker быть не должен.
+             * На всякий случай новую запись не разрешаем.
              */
             return;
         }
@@ -2242,8 +2508,8 @@ public class AudioRecorder {
         }
 
         /*
-         * NEW означает, что Thread объект создан,
-         * но worker физически не стартовал.
+         * NEW означает, что Thread был создан,
+         * но физически не запущен.
          */
         if (!thread.isAlive()) {
 
@@ -2284,8 +2550,7 @@ public class AudioRecorder {
 
             /*
              * interrupt — только запрос.
-             *
-             * Ссылку на Thread после этого НЕ теряем.
+             * Ссылку на worker не теряем.
              */
             thread.interrupt();
 
@@ -2456,23 +2721,35 @@ public class AudioRecorder {
     private static final class RecorderSession {
 
         /*
-         * Все native/media ресурсы этой записи
-         * принадлежат только этой session.
+         * Все media/native ресурсы записи
+         * принадлежат этой session.
          */
         private final Object resourceLock =
+                new Object();
+
+        /*
+         * Синхронизирует:
+         *
+         * PCM enqueue
+         * END signal
+         *
+         * Благодаря этому PCM физически
+         * не может появиться после END_CHUNK.
+         */
+        private final Object endSignalLock =
                 new Object();
 
         private final File outputFile;
 
         /*
-         * P0.1:
-         * очередь намеренно остаётся unbounded.
+         * P0.2:
          *
-         * В P0.2 будет bounded capacity +
-         * explicit overflow policy.
+         * bounded queue вместо unlimited queue.
          */
         private final LinkedBlockingQueue<PcmChunk> pcmQueue =
-                new LinkedBlockingQueue<>();
+                new LinkedBlockingQueue<>(
+                        PCM_QUEUE_CAPACITY
+                );
 
         private volatile SessionState state =
                 SessionState.PREPARING;
@@ -2484,6 +2761,20 @@ public class AudioRecorder {
                 false;
 
         private volatile boolean forceFailure =
+                false;
+
+        /*
+         * Диагностический признак именно
+         * PCM queue saturation/overflow.
+         */
+        private volatile boolean queueOverflowed =
+                false;
+
+        /*
+         * END_CHUNK отправляется логически
+         * максимум один раз.
+         */
+        private volatile boolean endSignalSent =
                 false;
 
         private volatile boolean captureSuccess =
