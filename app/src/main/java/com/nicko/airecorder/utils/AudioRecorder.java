@@ -25,6 +25,12 @@ public class AudioRecorder {
     private static final String TAG =
             "AudioRecorder";
 
+    /*
+     * =========================================================
+     * AUDIO CONFIGURATION
+     * =========================================================
+     */
+
     private static final int SAMPLE_RATE =
             44100;
 
@@ -50,33 +56,40 @@ public class AudioRecorder {
             1_000_000L;
 
     /*
-     * Encoder находится в отдельном потоке,
-     * поэтому ему разрешено немного ждать
-     * свободный input buffer.
+     * =========================================================
+     * CODEC TIMEOUTS
+     * =========================================================
      */
+
     private static final long CODEC_INPUT_TIMEOUT_US =
             10_000L;
 
-    /*
-     * Во время обычного drain ничего не ждём.
-     */
     private static final long CODEC_POLL_TIMEOUT_US =
             0L;
 
-    /*
-     * При EOS можно ждать output.
-     */
     private static final long CODEC_EOS_TIMEOUT_US =
             10_000L;
 
     private static final int MAX_EOS_WAIT_COUNT =
             300;
 
+    /*
+     * =========================================================
+     * WORKER TIMEOUTS
+     * =========================================================
+     */
+
     private static final long CAPTURE_JOIN_TIMEOUT_MS =
             3000L;
 
     private static final long ENCODER_JOIN_TIMEOUT_MS =
             10000L;
+
+    /*
+     * =========================================================
+     * END MARKER
+     * =========================================================
+     */
 
     private static final PcmChunk END_CHUNK =
             new PcmChunk(
@@ -85,70 +98,46 @@ public class AudioRecorder {
                     true
             );
 
+    /*
+     * =========================================================
+     * GLOBAL LIFECYCLE
+     * =========================================================
+     */
+
     private final Object lifecycleLock =
             new Object();
 
     /*
-     * Producer → Consumer.
+     * Только одна RecorderSession может быть активной.
      *
-     * Capture thread никогда не ждёт MediaCodec.
+     * Важно:
+     * AudioRecord / MediaCodec / MediaMuxer / queue / threads
+     * больше НЕ являются общими ресурсами AudioRecorder.
      */
-    private final LinkedBlockingQueue<PcmChunk> pcmQueue =
-            new LinkedBlockingQueue<>();
-
-    private volatile boolean recording =
-            false;
-
-    private volatile boolean paused =
-            false;
-
-    private volatile boolean stopRequested =
-            false;
-
-    private volatile boolean captureSuccess =
-            false;
-
-    private volatile boolean encoderSuccess =
-            false;
-
-    private volatile int maxAmplitude =
-            0;
-
-    private volatile Thread captureThread;
-
-    private volatile Thread encoderThread;
-
-    private volatile AudioRecord audioRecord;
-
-    private MediaCodec encoder;
-
-    private MediaMuxer muxer;
-
-    private boolean muxerStarted =
-            false;
-
-    private int muxerTrackIndex =
-            -1;
-
-    private File outputFile;
+    private volatile RecorderSession currentSession;
 
     /*
-     * Количество PCM samples,
-     * действительно переданных encoder.
+     * Последний успешно финализированный файл.
      *
-     * Pause сюда не входит.
+     * RecordServiceController вызывает:
+     *
+     * stopRecording()
+     *     ↓
+     * getOutputFile()
+     *
+     * поэтому после очистки currentSession
+     * сохраняем ссылку на успешный output.
      */
-    private long totalPcmSamples =
-            0L;
-
-    private long firstEncoderPresentationTimeUs =
-            Long.MIN_VALUE;
-
-    private long lastMuxerPresentationTimeUs =
-            -1L;
+    private volatile File lastCompletedOutputFile;
 
     public AudioRecorder() {
     }
+
+    /*
+     * =========================================================
+     * START
+     * =========================================================
+     */
 
     public void startRecording(
             @NonNull File outputFile
@@ -156,37 +145,65 @@ public class AudioRecorder {
 
         synchronized (lifecycleLock) {
 
-            if (recording) {
-                return;
-            }
+            cleanupTerminatedSessionLocked();
 
-            if (isThreadAlive(captureThread)
-                    || isThreadAlive(encoderThread)) {
+            RecorderSession existing =
+                    currentSession;
 
+            if (existing != null) {
+
+                /*
+                 * Повторный START во время уже идущей записи
+                 * оставляем idempotent.
+                 */
+                if (existing.state == SessionState.PREPARING
+                        || existing.state == SessionState.RECORDING
+                        || existing.state == SessionState.PAUSED) {
+
+                    return;
+                }
+
+                /*
+                 * Главное production-правило:
+                 *
+                 * пока старая session реально не закончилась,
+                 * новую запись не создаём.
+                 */
                 throw new IllegalStateException(
                         "Предыдущая запись ещё завершается"
                 );
             }
 
-            this.outputFile =
-                    outputFile;
-
             prepareOutputFile(
                     outputFile
             );
 
-            resetSessionState();
+            RecorderSession session =
+                    new RecorderSession(
+                            outputFile
+                    );
+
+            currentSession =
+                    session;
 
             try {
 
-                prepareAudioRecord();
+                prepareAudioRecord(
+                        session
+                );
 
-                prepareEncoder();
+                prepareEncoder(
+                        session
+                );
 
-                prepareMuxer();
+                prepareMuxer(
+                        session
+                );
 
                 AudioRecord localAudioRecord =
-                        audioRecord;
+                        getAudioRecord(
+                                session
+                        );
 
                 if (localAudioRecord == null) {
 
@@ -206,227 +223,366 @@ public class AudioRecorder {
                 }
 
                 /*
-                 * Encoder thread запускаем первым:
-                 * он будет ждать первый PCM chunk.
+                 * Каждый worker получает конкретную session.
+                 *
+                 * Старый worker физически не сможет
+                 * обратиться к ресурсам новой записи.
                  */
                 Thread newEncoderThread =
                         new Thread(
-                                this::encoderLoop,
+                                () -> encoderLoop(session),
                                 "AIRecorder-Encoder"
                         );
 
                 Thread newCaptureThread =
                         new Thread(
-                                this::captureLoop,
+                                () -> captureLoop(session),
                                 "AIRecorder-Capture"
                         );
 
-                encoderThread =
+                session.encoderThread =
                         newEncoderThread;
 
-                captureThread =
+                session.captureThread =
                         newCaptureThread;
 
-                recording =
-                        true;
+                session.state =
+                        SessionState.RECORDING;
 
+                /*
+                 * Encoder запускаем первым.
+                 * Он ждёт первый PCM chunk.
+                 */
                 newEncoderThread.start();
 
                 newCaptureThread.start();
 
+                Log.d(
+                        TAG,
+                        "RecorderSession запущена: "
+                                + outputFile.getAbsolutePath()
+                );
+
             } catch (IOException
                      | RuntimeException e) {
 
-                recording =
-                        false;
-
-                paused =
-                        false;
-
-                stopRequested =
-                        true;
-
-                pcmQueue.offer(
-                        END_CHUNK
+                Log.e(
+                        TAG,
+                        "Ошибка создания RecorderSession",
+                        e
                 );
 
-                cleanupAfterStartFailure();
+                abortStartSession(
+                        session
+                );
 
-                deleteOutputFileQuietly();
+                synchronized (lifecycleLock) {
+
+                    if (currentSession == session
+                            && session.state
+                            == SessionState.TERMINATED) {
+
+                        currentSession =
+                                null;
+                    }
+                }
 
                 throw e;
             }
         }
     }
 
+    /*
+     * =========================================================
+     * PAUSE
+     * =========================================================
+     */
+
     public boolean pauseRecording() {
-
-        if (!recording
-                || paused
-                || stopRequested) {
-
-            return false;
-        }
-
-        /*
-         * AudioRecord НЕ останавливаем.
-         *
-         * Capture thread продолжает читать
-         * hardware buffer и выбрасывает PCM.
-         */
-        paused =
-                true;
-
-        maxAmplitude =
-                0;
-
-        Log.d(
-                TAG,
-                "Pause включён"
-        );
-
-        return true;
-    }
-
-    public boolean resumeRecording() {
-
-        if (!recording
-                || !paused
-                || stopRequested) {
-
-            return false;
-        }
-
-        /*
-         * Никакого restart/resume устройства.
-         *
-         * Просто снова разрешаем
-         * помещать PCM в очередь.
-         */
-        paused =
-                false;
-
-        Log.d(
-                TAG,
-                "Resume выполнен"
-        );
-
-        return true;
-    }
-
-    public boolean stopRecording() {
-
-        Thread localCaptureThread;
-
-        Thread localEncoderThread;
 
         synchronized (lifecycleLock) {
 
-            if (!recording
-                    && captureThread == null
-                    && encoderThread == null) {
+            RecorderSession session =
+                    currentSession;
+
+            if (session == null
+                    || session.state
+                    != SessionState.RECORDING
+                    || session.stopRequested
+                    || session.forceFailure) {
 
                 return false;
             }
 
-            stopRequested =
+            /*
+             * AudioRecord не останавливаем.
+             *
+             * Capture продолжает обслуживать hardware buffer,
+             * но PCM во время Pause выбрасывается.
+             */
+            session.paused =
                     true;
 
-            paused =
+            session.maxAmplitude =
+                    0;
+
+            session.state =
+                    SessionState.PAUSED;
+
+            Log.d(
+                    TAG,
+                    "Pause включён"
+            );
+
+            return true;
+        }
+    }
+
+    /*
+     * =========================================================
+     * RESUME
+     * =========================================================
+     */
+
+    public boolean resumeRecording() {
+
+        synchronized (lifecycleLock) {
+
+            RecorderSession session =
+                    currentSession;
+
+            if (session == null
+                    || session.state
+                    != SessionState.PAUSED
+                    || session.stopRequested
+                    || session.forceFailure) {
+
+                return false;
+            }
+
+            session.paused =
                     false;
 
-            localCaptureThread =
-                    captureThread;
+            session.state =
+                    SessionState.RECORDING;
 
-            localEncoderThread =
-                    encoderThread;
+            Log.d(
+                    TAG,
+                    "Resume выполнен"
+            );
+
+            return true;
+        }
+    }
+
+    /*
+     * =========================================================
+     * STOP
+     * =========================================================
+     */
+
+    public boolean stopRecording() {
+
+        RecorderSession session;
+
+        synchronized (lifecycleLock) {
+
+            session =
+                    currentSession;
+
+            if (session == null) {
+
+                return false;
+            }
+
+            if (session.state
+                    == SessionState.TERMINATED) {
+
+                cleanupTerminatedSessionLocked();
+
+                return false;
+            }
+
+            session.stopRequested =
+                    true;
+
+            session.paused =
+                    false;
+
+            session.maxAmplitude =
+                    0;
+
+            session.state =
+                    SessionState.STOPPING;
         }
 
         /*
          * Прерываем blocking AudioRecord.read().
-         *
-         * Capture thread затем положит END_CHUNK.
          */
-        requestAudioRecordStop();
-
-        joinThread(
-                localCaptureThread,
-                CAPTURE_JOIN_TIMEOUT_MS,
-                "capture"
+        requestAudioRecordStop(
+                session
         );
 
         /*
-         * Encoder обязан обработать ВСЮ очередь,
-         * которая была накоплена до Stop,
-         * и только затем встретит END_CHUNK.
+         * =====================================================
+         * CAPTURE
+         * =====================================================
          */
-        joinThread(
-                localEncoderThread,
-                ENCODER_JOIN_TIMEOUT_MS,
-                "encoder"
-        );
 
-        boolean threadsFinished =
-                !isThreadAlive(
-                        localCaptureThread
-                )
-                        && !isThreadAlive(
-                        localEncoderThread
+        boolean captureFinishedInTime =
+                joinThread(
+                        session.captureThread,
+                        CAPTURE_JOIN_TIMEOUT_MS,
+                        "capture"
                 );
 
-        boolean fileValid =
-                outputFile != null
-                        && outputFile.exists()
-                        && outputFile.isFile()
-                        && outputFile.length() > 0L;
+        if (!captureFinishedInTime) {
 
-        boolean success =
-                threadsFinished
-                        && captureSuccess
-                        && encoderSuccess
-                        && fileValid;
+            /*
+             * Capture завис дольше допустимого.
+             *
+             * Запись уже не считаем безопасно финализируемой.
+             */
+            session.forceFailure =
+                    true;
 
-        synchronized (lifecycleLock) {
-
-            recording =
-                    false;
-
-            paused =
-                    false;
-
-            maxAmplitude =
-                    0;
-
-            captureThread =
-                    null;
-
-            encoderThread =
-                    null;
+            /*
+             * Encoder не должен бесконечно ждать END,
+             * если Capture не дошёл до своего finally.
+             */
+            session.pcmQueue.offer(
+                    END_CHUNK
+            );
         }
 
-        if (!success) {
+        /*
+         * =====================================================
+         * ENCODER
+         * =====================================================
+         */
+
+        boolean encoderFinishedInTime =
+                joinThread(
+                        session.encoderThread,
+                        ENCODER_JOIN_TIMEOUT_MS,
+                        "encoder"
+                );
+
+        if (!encoderFinishedInTime) {
+
+            session.forceFailure =
+                    true;
+
+            /*
+             * На всякий случай ещё раз просим Capture
+             * прекратить чтение.
+             */
+            requestAudioRecordStop(
+                    session
+            );
+
+            session.pcmQueue.offer(
+                    END_CHUNK
+            );
+        }
+
+        boolean captureThreadFinished =
+                !isThreadAlive(
+                        session.captureThread
+                )
+                        && session.captureFinished;
+
+        boolean encoderThreadFinished =
+                !isThreadAlive(
+                        session.encoderThread
+                )
+                        && session.encoderFinished;
+
+        boolean workersFinished =
+                captureThreadFinished
+                        && encoderThreadFinished;
+
+        boolean fileValid =
+                isFileValidBasic(
+                        session.outputFile
+                );
+
+        boolean success =
+                workersFinished
+                        && !session.forceFailure
+                        && session.captureSuccess
+                        && session.encoderSuccess
+                        && fileValid;
+
+        if (success) {
+
+            lastCompletedOutputFile =
+                    session.outputFile;
+
+        } else {
 
             Log.e(
                     TAG,
-                    "Финализация записи завершилась с ошибкой"
+                    "Финализация RecorderSession завершилась с ошибкой"
             );
 
-            deleteOutputFileQuietly();
+            /*
+             * Если worker всё ещё жив —
+             * файл здесь не удаляем.
+             *
+             * Encoder удалит его после release собственных
+             * MediaCodec / MediaMuxer.
+             */
+            if (workersFinished) {
+
+                deleteOutputFileQuietly(
+                        session
+                );
+            }
+        }
+
+        synchronized (lifecycleLock) {
+
+            if (workersFinished) {
+
+                session.state =
+                        SessionState.TERMINATED;
+
+                if (currentSession
+                        == session) {
+
+                    currentSession =
+                            null;
+                }
+
+            } else {
+
+                /*
+                 * КРИТИЧЕСКИ ВАЖНО:
+                 *
+                 * не обнуляем currentSession.
+                 *
+                 * Пока старые workers реально живы,
+                 * следующая запись на этом AudioRecorder
+                 * будет запрещена.
+                 */
+                session.state =
+                        SessionState.STOPPING;
+            }
         }
 
         return success;
     }
 
     /*
-     * PRODUCER
-     *
-     * Единственная задача этого потока:
-     *
-     * microphone → PCM → queue
-     *
-     * MediaCodec здесь вообще не используется.
+     * =========================================================
+     * CAPTURE WORKER
+     * =========================================================
      */
-    private void captureLoop() {
+
+    private void captureLoop(
+            RecorderSession session
+    ) {
 
         boolean success =
                 false;
@@ -442,10 +598,12 @@ public class AudioRecorder {
                             PCM_BUFFER_SAMPLES
                             ];
 
-            while (!stopRequested) {
+            while (!session.stopRequested) {
 
                 AudioRecord localAudioRecord =
-                        audioRecord;
+                        getAudioRecord(
+                                session
+                        );
 
                 if (localAudioRecord == null) {
 
@@ -465,20 +623,20 @@ public class AudioRecorder {
                 if (readSamples > 0) {
 
                     /*
-                     * Проверяем Pause ПОСЛЕ read.
+                     * Pause проверяем ПОСЛЕ read.
                      *
-                     * Таким образом hardware buffer
-                     * микрофона обслуживается постоянно.
+                     * Hardware buffer продолжает обслуживаться.
                      */
-                    if (paused) {
+                    if (session.paused) {
 
-                        maxAmplitude =
+                        session.maxAmplitude =
                                 0;
 
                         continue;
                     }
 
                     updateAmplitude(
+                            session,
                             pcmBuffer,
                             readSamples
                     );
@@ -489,7 +647,13 @@ public class AudioRecorder {
                                     readSamples
                             );
 
-                    pcmQueue.put(
+                    /*
+                     * P0.1:
+                     * очередь пока намеренно остаётся unbounded.
+                     *
+                     * Capacity / overflow policy будет P0.2.
+                     */
+                    session.pcmQueue.put(
                             new PcmChunk(
                                     copy,
                                     readSamples,
@@ -500,7 +664,7 @@ public class AudioRecorder {
                     continue;
                 }
 
-                if (stopRequested) {
+                if (session.stopRequested) {
 
                     break;
                 }
@@ -525,13 +689,14 @@ public class AudioRecorder {
                     .interrupt();
 
             /*
-             * Если Stop уже был запрошен,
-             * interruption не считаем аварией.
+             * Normal STOP может interrupt'ить worker.
+             * Timeout/failure — уже нет.
              */
             success =
-                    stopRequested;
+                    session.stopRequested
+                            && !session.forceFailure;
 
-            if (!stopRequested) {
+            if (!session.stopRequested) {
 
                 Log.e(
                         TAG,
@@ -553,46 +718,58 @@ public class AudioRecorder {
 
         } finally {
 
-            captureSuccess =
-                    success;
+            /*
+             * forceFailure имеет приоритет
+             * над обычным успешным выходом.
+             */
+            session.captureSuccess =
+                    success
+                            && !session.forceFailure;
 
-            stopAndReleaseAudioRecord();
+            stopAndReleaseAudioRecord(
+                    session
+            );
 
             /*
-             * END всегда идёт ПОСЛЕ всех PCM chunks.
-             *
-             * Поэтому encoder обработает очередь
-             * полностью перед EOS.
+             * END всегда должен идти после PCM,
+             * когда Capture завершился штатно.
              */
-            pcmQueue.offer(
+            session.pcmQueue.offer(
                     END_CHUNK
             );
 
-            if (!success) {
+            if (!session.captureSuccess) {
 
-                stopRequested =
+                session.stopRequested =
                         true;
             }
+
+            session.captureFinished =
+                    true;
+
+            markSessionTerminatedIfFinished(
+                    session
+            );
 
             Log.d(
                     TAG,
                     "Capture завершён. success="
-                            + captureSuccess
+                            + session.captureSuccess
                             + ", queue="
-                            + pcmQueue.size()
+                            + session.pcmQueue.size()
             );
         }
     }
 
     /*
-     * CONSUMER
-     *
-     * Этот поток может ждать MediaCodec сколько нужно.
-     *
-     * Захват микрофона от этого больше
-     * НЕ останавливается.
+     * =========================================================
+     * ENCODER WORKER
+     * =========================================================
      */
-    private void encoderLoop() {
+
+    private void encoderLoop(
+            RecorderSession session
+    ) {
 
         boolean pipelineSuccess =
                 false;
@@ -602,7 +779,7 @@ public class AudioRecorder {
             while (true) {
 
                 PcmChunk chunk =
-                        pcmQueue.take();
+                        session.pcmQueue.take();
 
                 if (chunk.endOfStream) {
 
@@ -616,29 +793,46 @@ public class AudioRecorder {
                 }
 
                 queuePcmToEncoder(
+                        session,
                         chunk.data,
                         chunk.sampleCount
                 );
             }
 
-            if (totalPcmSamples <= 0L) {
+            /*
+             * Если stop timeout уже признал session failed,
+             * больше не пытаемся считать её успешной.
+             */
+            if (session.forceFailure) {
+
+                throw new IOException(
+                        "RecorderSession принудительно завершена"
+                );
+            }
+
+            if (session.totalPcmSamples <= 0L) {
 
                 throw new IOException(
                         "Запись не содержит PCM"
                 );
             }
 
-            queueEndOfStream();
+            queueEndOfStream(
+                    session
+            );
 
             drainEncoder(
+                    session,
                     true
             );
 
-            writeMuxerEndMarker();
+            writeMuxerEndMarker(
+                    session
+            );
 
             pipelineSuccess =
-                    muxerStarted
-                            && muxerTrackIndex >= 0;
+                    session.muxerStarted
+                            && session.muxerTrackIndex >= 0;
 
         } catch (InterruptedException e) {
 
@@ -667,60 +861,86 @@ public class AudioRecorder {
 
         } finally {
 
-            /*
-             * Если encoder упал раньше времени,
-             * прекращаем capture.
-             */
             if (!pipelineSuccess) {
 
-                stopRequested =
+                session.stopRequested =
                         true;
 
-                requestAudioRecordStop();
+                session.forceFailure =
+                        true;
+
+                requestAudioRecordStop(
+                        session
+                );
             }
 
-            releaseEncoder();
+            /*
+             * Освобождаются ТОЛЬКО ресурсы этой session.
+             */
+            releaseEncoder(
+                    session
+            );
 
             boolean muxerSuccess =
-                    stopAndReleaseMuxer();
+                    stopAndReleaseMuxer(
+                            session
+                    );
 
             boolean fileValid =
-                    outputFile != null
-                            && outputFile.exists()
-                            && outputFile.isFile()
-                            && outputFile.length() > 0L;
+                    isFileValidBasic(
+                            session.outputFile
+                    );
 
-            encoderSuccess =
+            session.encoderSuccess =
                     pipelineSuccess
                             && muxerSuccess
-                            && fileValid;
+                            && fileValid
+                            && !session.forceFailure;
 
-            if (!encoderSuccess) {
+            if (!session.encoderSuccess) {
 
-                deleteOutputFileQuietly();
+                deleteOutputFileQuietly(
+                        session
+                );
             }
+
+            session.encoderFinished =
+                    true;
+
+            markSessionTerminatedIfFinished(
+                    session
+            );
 
             Log.d(
                     TAG,
                     "Encoder завершён. success="
-                            + encoderSuccess
+                            + session.encoderSuccess
                             + ", pcmSamples="
-                            + totalPcmSamples
+                            + session.totalPcmSamples
                             + ", durationUs="
                             + samplesToTimeUs(
-                            totalPcmSamples
+                            session.totalPcmSamples
                     )
             );
         }
     }
 
+    /*
+     * =========================================================
+     * PCM → AAC INPUT
+     * =========================================================
+     */
+
     private void queuePcmToEncoder(
+            RecorderSession session,
             short[] pcm,
             int sampleCount
     ) throws IOException {
 
         MediaCodec localEncoder =
-                encoder;
+                getEncoder(
+                        session
+                );
 
         if (localEncoder == null) {
 
@@ -735,6 +955,13 @@ public class AudioRecorder {
         while (sourceOffset
                 < sampleCount) {
 
+            if (session.forceFailure) {
+
+                throw new IOException(
+                        "RecorderSession отменена"
+                );
+            }
+
             int inputIndex =
                     localEncoder.dequeueInputBuffer(
                             CODEC_INPUT_TIMEOUT_US
@@ -744,6 +971,7 @@ public class AudioRecorder {
                     == MediaCodec.INFO_TRY_AGAIN_LATER) {
 
                 drainEncoder(
+                        session,
                         false
                 );
 
@@ -753,6 +981,7 @@ public class AudioRecorder {
             if (inputIndex < 0) {
 
                 drainEncoder(
+                        session,
                         false
                 );
 
@@ -809,7 +1038,7 @@ public class AudioRecorder {
 
             long presentationTimeUs =
                     samplesToTimeUs(
-                            totalPcmSamples
+                            session.totalPcmSamples
                     );
 
             localEncoder.queueInputBuffer(
@@ -821,23 +1050,33 @@ public class AudioRecorder {
                     0
             );
 
-            totalPcmSamples +=
+            session.totalPcmSamples +=
                     chunkSamples;
 
             sourceOffset +=
                     chunkSamples;
 
             drainEncoder(
+                    session,
                     false
             );
         }
     }
 
-    private void queueEndOfStream()
-            throws IOException {
+    /*
+     * =========================================================
+     * AAC EOS
+     * =========================================================
+     */
+
+    private void queueEndOfStream(
+            RecorderSession session
+    ) throws IOException {
 
         MediaCodec localEncoder =
-                encoder;
+                getEncoder(
+                        session
+                );
 
         if (localEncoder == null) {
 
@@ -851,6 +1090,13 @@ public class AudioRecorder {
 
         while (true) {
 
+            if (session.forceFailure) {
+
+                throw new IOException(
+                        "RecorderSession отменена до AAC EOS"
+                );
+            }
+
             int inputIndex =
                     localEncoder.dequeueInputBuffer(
                             CODEC_INPUT_TIMEOUT_US
@@ -863,7 +1109,7 @@ public class AudioRecorder {
                         0,
                         0,
                         samplesToTimeUs(
-                                totalPcmSamples
+                                session.totalPcmSamples
                         ),
                         MediaCodec
                                 .BUFFER_FLAG_END_OF_STREAM
@@ -873,6 +1119,7 @@ public class AudioRecorder {
             }
 
             drainEncoder(
+                    session,
                     false
             );
 
@@ -888,12 +1135,21 @@ public class AudioRecorder {
         }
     }
 
+    /*
+     * =========================================================
+     * AAC OUTPUT → MUXER
+     * =========================================================
+     */
+
     private void drainEncoder(
+            RecorderSession session,
             boolean waitForEndOfStream
     ) throws IOException {
 
         MediaCodec localEncoder =
-                encoder;
+                getEncoder(
+                        session
+                );
 
         if (localEncoder == null) {
 
@@ -910,6 +1166,14 @@ public class AudioRecorder {
 
         while (true) {
 
+            if (session.forceFailure
+                    && !waitForEndOfStream) {
+
+                throw new IOException(
+                        "RecorderSession отменена"
+                );
+            }
+
             long timeoutUs =
                     waitForEndOfStream
                             ? CODEC_EOS_TIMEOUT_US
@@ -925,6 +1189,7 @@ public class AudioRecorder {
                     == MediaCodec.INFO_TRY_AGAIN_LATER) {
 
                 if (!waitForEndOfStream) {
+
                     return;
                 }
 
@@ -947,7 +1212,7 @@ public class AudioRecorder {
             if (outputIndex
                     == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
 
-                if (muxerStarted) {
+                if (session.muxerStarted) {
 
                     throw new IOException(
                             "AAC format изменился повторно"
@@ -955,7 +1220,9 @@ public class AudioRecorder {
                 }
 
                 MediaMuxer localMuxer =
-                        muxer;
+                        getMuxer(
+                                session
+                        );
 
                 if (localMuxer == null) {
 
@@ -967,14 +1234,14 @@ public class AudioRecorder {
                 MediaFormat outputFormat =
                         localEncoder.getOutputFormat();
 
-                muxerTrackIndex =
+                session.muxerTrackIndex =
                         localMuxer.addTrack(
                                 outputFormat
                         );
 
                 localMuxer.start();
 
-                muxerStarted =
+                session.muxerStarted =
                         true;
 
                 Log.d(
@@ -986,6 +1253,7 @@ public class AudioRecorder {
             }
 
             if (outputIndex < 0) {
+
                 continue;
             }
 
@@ -1023,8 +1291,8 @@ public class AudioRecorder {
 
             if (bufferInfo.size > 0) {
 
-                if (!muxerStarted
-                        || muxerTrackIndex < 0) {
+                if (!session.muxerStarted
+                        || session.muxerTrackIndex < 0) {
 
                     localEncoder.releaseOutputBuffer(
                             outputIndex,
@@ -1036,16 +1304,16 @@ public class AudioRecorder {
                     );
                 }
 
-                if (firstEncoderPresentationTimeUs
+                if (session.firstEncoderPresentationTimeUs
                         == Long.MIN_VALUE) {
 
-                    firstEncoderPresentationTimeUs =
+                    session.firstEncoderPresentationTimeUs =
                             bufferInfo.presentationTimeUs;
                 }
 
                 long normalizedTimeUs =
                         bufferInfo.presentationTimeUs
-                                - firstEncoderPresentationTimeUs;
+                                - session.firstEncoderPresentationTimeUs;
 
                 if (normalizedTimeUs < 0L) {
 
@@ -1053,13 +1321,13 @@ public class AudioRecorder {
                             0L;
                 }
 
-                if (lastMuxerPresentationTimeUs
+                if (session.lastMuxerPresentationTimeUs
                         >= 0L
                         && normalizedTimeUs
-                        <= lastMuxerPresentationTimeUs) {
+                        <= session.lastMuxerPresentationTimeUs) {
 
                     normalizedTimeUs =
-                            lastMuxerPresentationTimeUs
+                            session.lastMuxerPresentationTimeUs
                                     + 1L;
                 }
 
@@ -1076,7 +1344,9 @@ public class AudioRecorder {
                 );
 
                 MediaMuxer localMuxer =
-                        muxer;
+                        getMuxer(
+                                session
+                        );
 
                 if (localMuxer == null) {
 
@@ -1091,12 +1361,12 @@ public class AudioRecorder {
                 }
 
                 localMuxer.writeSampleData(
-                        muxerTrackIndex,
+                        session.muxerTrackIndex,
                         encodedBuffer,
                         bufferInfo
                 );
 
-                lastMuxerPresentationTimeUs =
+                session.lastMuxerPresentationTimeUs =
                         normalizedTimeUs;
             }
 
@@ -1106,17 +1376,25 @@ public class AudioRecorder {
             );
 
             if (endOfStream) {
+
                 return;
             }
         }
     }
 
-    private void writeMuxerEndMarker()
-            throws IOException {
+    /*
+     * =========================================================
+     * MUXER END MARKER
+     * =========================================================
+     */
 
-        if (!muxerStarted
-                || muxerTrackIndex < 0
-                || lastMuxerPresentationTimeUs < 0L) {
+    private void writeMuxerEndMarker(
+            RecorderSession session
+    ) throws IOException {
+
+        if (!session.muxerStarted
+                || session.muxerTrackIndex < 0
+                || session.lastMuxerPresentationTimeUs < 0L) {
 
             throw new IOException(
                     "MediaMuxer не содержит AAC"
@@ -1124,7 +1402,9 @@ public class AudioRecorder {
         }
 
         MediaMuxer localMuxer =
-                muxer;
+                getMuxer(
+                        session
+                );
 
         if (localMuxer == null) {
 
@@ -1135,18 +1415,20 @@ public class AudioRecorder {
 
         long expectedDurationUs =
                 samplesToTimeUs(
-                        totalPcmSamples
+                        session.totalPcmSamples
                 );
 
         long endTimeUs =
                 Math.max(
                         expectedDurationUs,
-                        lastMuxerPresentationTimeUs
+                        session.lastMuxerPresentationTimeUs
                                 + 1L
                 );
 
         ByteBuffer emptyBuffer =
-                ByteBuffer.allocate(1);
+                ByteBuffer.allocate(
+                        1
+                );
 
         MediaCodec.BufferInfo endInfo =
                 new MediaCodec.BufferInfo();
@@ -1160,7 +1442,7 @@ public class AudioRecorder {
         );
 
         localMuxer.writeSampleData(
-                muxerTrackIndex,
+                session.muxerTrackIndex,
                 emptyBuffer,
                 endInfo
         );
@@ -1173,11 +1455,18 @@ public class AudioRecorder {
         );
     }
 
+    /*
+     * =========================================================
+     * TIMESTAMPS
+     * =========================================================
+     */
+
     private long samplesToTimeUs(
             long pcmSamples
     ) {
 
         if (pcmSamples <= 0L) {
+
             return 0L;
         }
 
@@ -1186,7 +1475,14 @@ public class AudioRecorder {
                 / SAMPLE_RATE;
     }
 
+    /*
+     * =========================================================
+     * AMPLITUDE
+     * =========================================================
+     */
+
     private void updateAmplitude(
+            RecorderSession session,
             short[] pcm,
             int sampleCount
     ) {
@@ -1194,7 +1490,8 @@ public class AudioRecorder {
         if (pcm == null
                 || sampleCount <= 0) {
 
-            maxAmplitude = 0;
+            session.maxAmplitude =
+                    0;
 
             return;
         }
@@ -1226,17 +1523,12 @@ public class AudioRecorder {
                 );
 
         int currentLevel =
-                maxAmplitude;
+                session.maxAmplitude;
 
-        /*
-         * Attack / Release envelope.
-         *
-         * Рост громкости отображаем быстро,
-         * спад — немного плавнее.
-         */
         float smoothing;
 
-        if (targetLevel > currentLevel) {
+        if (targetLevel
+                > currentLevel) {
 
             smoothing =
                     0.65f;
@@ -1257,7 +1549,7 @@ public class AudioRecorder {
                                 * smoothing
                 );
 
-        maxAmplitude =
+        session.maxAmplitude =
                 Math.max(
                         0,
                         Math.min(
@@ -1271,16 +1563,11 @@ public class AudioRecorder {
             double rms
     ) {
 
-        /*
-         * Нижняя граница визуализатора.
-         *
-         * Всё тише -60 dB считаем
-         * практически тишиной.
-         */
         final double minDb =
                 -60.0;
 
         if (rms <= 0.0) {
+
             return 0;
         }
 
@@ -1291,10 +1578,12 @@ public class AudioRecorder {
                 );
 
         if (db <= minDb) {
+
             return 0;
         }
 
         if (db >= 0.0) {
+
             return 100;
         }
 
@@ -1316,6 +1605,12 @@ public class AudioRecorder {
                 )
         );
     }
+
+    /*
+     * =========================================================
+     * OUTPUT FILE
+     * =========================================================
+     */
 
     private void prepareOutputFile(
             File file
@@ -1348,9 +1643,16 @@ public class AudioRecorder {
         }
     }
 
+    /*
+     * =========================================================
+     * AUDIO RECORD PREPARE
+     * =========================================================
+     */
+
     @SuppressLint("MissingPermission")
-    private void prepareAudioRecord()
-            throws IOException {
+    private void prepareAudioRecord(
+            RecorderSession session
+    ) throws IOException {
 
         int minBufferSize =
                 AudioRecord.getMinBufferSize(
@@ -1394,12 +1696,22 @@ public class AudioRecorder {
             );
         }
 
-        audioRecord =
-                createdAudioRecord;
+        synchronized (session.resourceLock) {
+
+            session.audioRecord =
+                    createdAudioRecord;
+        }
     }
 
-    private void prepareEncoder()
-            throws IOException {
+    /*
+     * =========================================================
+     * ENCODER PREPARE
+     * =========================================================
+     */
+
+    private void prepareEncoder(
+            RecorderSession session
+    ) throws IOException {
 
         MediaFormat format =
                 MediaFormat.createAudioFormat(
@@ -1432,6 +1744,18 @@ public class AudioRecorder {
                         MediaFormat.MIMETYPE_AUDIO_AAC
                 );
 
+        /*
+         * Сохраняем ссылку до configure/start.
+         *
+         * Если configure/start завершится ошибкой,
+         * cleanup всё равно сможет release codec.
+         */
+        synchronized (session.resourceLock) {
+
+            session.encoder =
+                    createdEncoder;
+        }
+
         createdEncoder.configure(
                 format,
                 null,
@@ -1440,103 +1764,131 @@ public class AudioRecorder {
         );
 
         createdEncoder.start();
-
-        encoder =
-                createdEncoder;
     }
 
-    private void prepareMuxer()
-            throws IOException {
+    /*
+     * =========================================================
+     * MUXER PREPARE
+     * =========================================================
+     */
 
-        if (outputFile == null) {
+    private void prepareMuxer(
+            RecorderSession session
+    ) throws IOException {
 
-            throw new IOException(
-                    "Файл записи отсутствует"
-            );
-        }
-
-        muxer =
+        MediaMuxer createdMuxer =
                 new MediaMuxer(
-                        outputFile.getAbsolutePath(),
+                        session.outputFile
+                                .getAbsolutePath(),
                         MediaMuxer.OutputFormat
                                 .MUXER_OUTPUT_MPEG_4
                 );
-    }
 
-    private void resetSessionState() {
+        synchronized (session.resourceLock) {
 
-        pcmQueue.clear();
-
-        recording =
-                false;
-
-        paused =
-                false;
-
-        stopRequested =
-                false;
-
-        captureSuccess =
-                false;
-
-        encoderSuccess =
-                false;
-
-        maxAmplitude =
-                0;
-
-        totalPcmSamples =
-                0L;
-
-        firstEncoderPresentationTimeUs =
-                Long.MIN_VALUE;
-
-        lastMuxerPresentationTimeUs =
-                -1L;
-
-        muxerStarted =
-                false;
-
-        muxerTrackIndex =
-                -1;
-    }
-
-    private void requestAudioRecordStop() {
-
-        AudioRecord localAudioRecord =
-                audioRecord;
-
-        if (localAudioRecord == null) {
-            return;
+            session.muxer =
+                    createdMuxer;
         }
+    }
 
-        try {
+    /*
+     * =========================================================
+     * GET SESSION RESOURCES
+     * =========================================================
+     */
 
-            if (localAudioRecord.getRecordingState()
-                    == AudioRecord.RECORDSTATE_RECORDING) {
+    private AudioRecord getAudioRecord(
+            RecorderSession session
+    ) {
 
-                localAudioRecord.stop();
+        synchronized (session.resourceLock) {
+
+            return session.audioRecord;
+        }
+    }
+
+    private MediaCodec getEncoder(
+            RecorderSession session
+    ) {
+
+        synchronized (session.resourceLock) {
+
+            return session.encoder;
+        }
+    }
+
+    private MediaMuxer getMuxer(
+            RecorderSession session
+    ) {
+
+        synchronized (session.resourceLock) {
+
+            return session.muxer;
+        }
+    }
+
+    /*
+     * =========================================================
+     * REQUEST AUDIO STOP
+     * =========================================================
+     */
+
+    private void requestAudioRecordStop(
+            RecorderSession session
+    ) {
+
+        synchronized (session.resourceLock) {
+
+            AudioRecord localAudioRecord =
+                    session.audioRecord;
+
+            if (localAudioRecord == null) {
+
+                return;
             }
 
-        } catch (Exception e) {
+            try {
 
-            Log.w(
-                    TAG,
-                    "Ошибка принудительного AudioRecord.stop()",
-                    e
-            );
+                if (localAudioRecord.getRecordingState()
+                        == AudioRecord.RECORDSTATE_RECORDING) {
+
+                    localAudioRecord.stop();
+                }
+
+            } catch (Exception e) {
+
+                Log.w(
+                        TAG,
+                        "Ошибка принудительного AudioRecord.stop()",
+                        e
+                );
+            }
         }
     }
 
-    private void stopAndReleaseAudioRecord() {
+    /*
+     * =========================================================
+     * RELEASE AUDIO RECORD
+     * =========================================================
+     */
 
-        AudioRecord localAudioRecord =
-                audioRecord;
+    private void stopAndReleaseAudioRecord(
+            RecorderSession session
+    ) {
 
-        audioRecord =
-                null;
+        AudioRecord localAudioRecord;
+
+        synchronized (session.resourceLock) {
+
+            localAudioRecord =
+                    session.audioRecord;
+
+            session.audioRecord =
+                    null;
+        }
 
         if (localAudioRecord == null) {
+
             return;
         }
 
@@ -1571,15 +1923,29 @@ public class AudioRecorder {
         }
     }
 
-    private void releaseEncoder() {
+    /*
+     * =========================================================
+     * RELEASE ENCODER
+     * =========================================================
+     */
 
-        MediaCodec localEncoder =
-                encoder;
+    private void releaseEncoder(
+            RecorderSession session
+    ) {
 
-        encoder =
-                null;
+        MediaCodec localEncoder;
+
+        synchronized (session.resourceLock) {
+
+            localEncoder =
+                    session.encoder;
+
+            session.encoder =
+                    null;
+        }
 
         if (localEncoder == null) {
+
             return;
         }
 
@@ -1610,22 +1976,47 @@ public class AudioRecorder {
         }
     }
 
-    private boolean stopAndReleaseMuxer() {
+    /*
+     * =========================================================
+     * RELEASE MUXER
+     * =========================================================
+     */
 
-        MediaMuxer localMuxer =
-                muxer;
+    private boolean stopAndReleaseMuxer(
+            RecorderSession session
+    ) {
 
-        muxer =
-                null;
+        MediaMuxer localMuxer;
+
+        boolean wasStarted;
+
+        synchronized (session.resourceLock) {
+
+            localMuxer =
+                    session.muxer;
+
+            session.muxer =
+                    null;
+
+            wasStarted =
+                    session.muxerStarted;
+        }
 
         if (localMuxer == null) {
+
+            session.muxerStarted =
+                    false;
+
+            session.muxerTrackIndex =
+                    -1;
+
             return false;
         }
 
         boolean success =
-                muxerStarted;
+                wasStarted;
 
-        if (muxerStarted) {
+        if (wasStarted) {
 
             try {
 
@@ -1660,66 +2051,203 @@ public class AudioRecorder {
                     false;
         }
 
-        muxerStarted =
+        session.muxerStarted =
                 false;
 
-        muxerTrackIndex =
+        session.muxerTrackIndex =
                 -1;
 
         return success;
     }
 
-    private void cleanupAfterStartFailure() {
+    /*
+     * =========================================================
+     * START FAILURE
+     * =========================================================
+     */
 
-        requestAudioRecordStop();
+    private void abortStartSession(
+            RecorderSession session
+    ) {
 
-        stopAndReleaseAudioRecord();
+        session.forceFailure =
+                true;
 
-        releaseEncoder();
+        session.stopRequested =
+                true;
 
-        MediaMuxer localMuxer =
-                muxer;
-
-        muxer =
-                null;
-
-        if (localMuxer != null) {
-
-            try {
-
-                if (muxerStarted) {
-
-                    localMuxer.stop();
-                }
-
-            } catch (Exception ignored) {
-            }
-
-            try {
-
-                localMuxer.release();
-
-            } catch (Exception ignored) {
-            }
-        }
-
-        muxerStarted =
+        session.paused =
                 false;
 
-        muxerTrackIndex =
-                -1;
+        session.state =
+                SessionState.STOPPING;
+
+        requestAudioRecordStop(
+                session
+        );
+
+        /*
+         * Если encoder уже успел стартовать —
+         * даём ему возможность выйти.
+         */
+        session.pcmQueue.offer(
+                END_CHUNK
+        );
+
+        boolean captureDone =
+                joinThread(
+                        session.captureThread,
+                        CAPTURE_JOIN_TIMEOUT_MS,
+                        "capture-start-failure"
+                );
+
+        boolean encoderDone =
+                joinThread(
+                        session.encoderThread,
+                        ENCODER_JOIN_TIMEOUT_MS,
+                        "encoder-start-failure"
+                );
+
+        /*
+         * Если конкретный worker вообще не стартовал
+         * или уже завершён — cleanup его ресурса
+         * выполняем здесь.
+         */
+
+        if (captureDone
+                && !isThreadAlive(
+                session.captureThread
+        )) {
+
+            stopAndReleaseAudioRecord(
+                    session
+            );
+
+            session.captureSuccess =
+                    false;
+
+            session.captureFinished =
+                    true;
+        }
+
+        if (encoderDone
+                && !isThreadAlive(
+                session.encoderThread
+        )) {
+
+            releaseEncoder(
+                    session
+            );
+
+            stopAndReleaseMuxer(
+                    session
+            );
+
+            session.encoderSuccess =
+                    false;
+
+            session.encoderFinished =
+                    true;
+        }
+
+        markSessionTerminatedIfFinished(
+                session
+        );
+
+        if (session.captureFinished
+                && session.encoderFinished) {
+
+            deleteOutputFileQuietly(
+                    session
+            );
+        }
     }
 
-    private void joinThread(
+    /*
+     * =========================================================
+     * SESSION TERMINATION
+     * =========================================================
+     */
+
+    private void markSessionTerminatedIfFinished(
+            RecorderSession session
+    ) {
+
+        if (!session.captureFinished
+                || !session.encoderFinished) {
+
+            return;
+        }
+
+        session.state =
+                SessionState.TERMINATED;
+    }
+
+    private void cleanupTerminatedSessionLocked() {
+
+        RecorderSession session =
+                currentSession;
+
+        if (session == null) {
+
+            return;
+        }
+
+        if (session.state
+                != SessionState.TERMINATED) {
+
+            return;
+        }
+
+        if (isThreadAlive(
+                session.captureThread
+        )
+                || isThreadAlive(
+                session.encoderThread
+        )) {
+
+            /*
+             * Теоретически state TERMINATED без завершённых
+             * workers быть не должен.
+             *
+             * Но новый START всё равно не разрешаем.
+             */
+            return;
+        }
+
+        currentSession =
+                null;
+    }
+
+    /*
+     * =========================================================
+     * THREAD JOIN
+     * =========================================================
+     */
+
+    private boolean joinThread(
             Thread thread,
             long timeoutMs,
             String name
     ) {
 
-        if (thread == null
-                || thread == Thread.currentThread()) {
+        if (thread == null) {
 
-            return;
+            return true;
+        }
+
+        if (thread == Thread.currentThread()) {
+
+            return false;
+        }
+
+        /*
+         * NEW означает, что Thread объект создан,
+         * но worker физически не стартовал.
+         */
+        if (!thread.isAlive()) {
+
+            return true;
         }
 
         try {
@@ -1740,6 +2268,8 @@ public class AudioRecorder {
                             + " thread прервано",
                     e
             );
+
+            return false;
         }
 
         if (thread.isAlive()) {
@@ -1747,11 +2277,22 @@ public class AudioRecorder {
             Log.e(
                     TAG,
                     name
-                            + " thread не завершился"
+                            + " thread не завершился за "
+                            + timeoutMs
+                            + " ms"
             );
 
+            /*
+             * interrupt — только запрос.
+             *
+             * Ссылку на Thread после этого НЕ теряем.
+             */
             thread.interrupt();
+
+            return false;
         }
+
+        return true;
     }
 
     private boolean isThreadAlive(
@@ -1762,13 +2303,35 @@ public class AudioRecorder {
                 && thread.isAlive();
     }
 
-    private void deleteOutputFileQuietly() {
+    /*
+     * =========================================================
+     * FILE HELPERS
+     * =========================================================
+     */
+
+    private boolean isFileValidBasic(
+            File file
+    ) {
+
+        return file != null
+                && file.exists()
+                && file.isFile()
+                && file.length() > 0L;
+    }
+
+    private void deleteOutputFileQuietly(
+            RecorderSession session
+    ) {
+
+        if (session == null) {
+
+            return;
+        }
 
         File file =
-                outputFile;
+                session.outputFile;
 
-        if (file == null
-                || !file.exists()) {
+        if (!file.exists()) {
 
             return;
         }
@@ -1783,49 +2346,203 @@ public class AudioRecorder {
         }
     }
 
+    /*
+     * =========================================================
+     * PUBLIC STATE
+     * =========================================================
+     */
+
     public int getMaxAmplitude() {
 
-        if (!recording
-                || paused) {
+        RecorderSession session =
+                currentSession;
+
+        if (session == null
+                || session.state
+                != SessionState.RECORDING
+                || session.paused
+                || session.stopRequested) {
 
             return 0;
         }
 
-        return maxAmplitude;
+        return session.maxAmplitude;
     }
 
     public File getOutputFile() {
 
-        return outputFile;
+        RecorderSession session =
+                currentSession;
+
+        if (session != null) {
+
+            return session.outputFile;
+        }
+
+        return lastCompletedOutputFile;
     }
 
     public boolean hasValidRecording() {
 
-        return outputFile != null
-                && outputFile.exists()
-                && outputFile.isFile()
-                && outputFile.length() > 0L;
+        return isFileValidBasic(
+                getOutputFile()
+        );
     }
 
     public boolean isRecording() {
 
-        return recording;
+        RecorderSession session =
+                currentSession;
+
+        if (session == null) {
+
+            return false;
+        }
+
+        return session.state
+                == SessionState.RECORDING
+                || session.state
+                == SessionState.PAUSED;
     }
 
     public boolean isPaused() {
 
-        return paused;
+        RecorderSession session =
+                currentSession;
+
+        return session != null
+                && session.state
+                == SessionState.PAUSED;
     }
 
     public String getFilePath() {
 
-        if (outputFile == null) {
+        File file =
+                getOutputFile();
+
+        if (file == null) {
+
             return null;
         }
 
-        return outputFile
-                .getAbsolutePath();
+        return file.getAbsolutePath();
     }
+
+    /*
+     * =========================================================
+     * SESSION STATE
+     * =========================================================
+     */
+
+    private enum SessionState {
+
+        PREPARING,
+
+        RECORDING,
+
+        PAUSED,
+
+        STOPPING,
+
+        TERMINATED
+    }
+
+    /*
+     * =========================================================
+     * RECORDER SESSION
+     * =========================================================
+     */
+
+    private static final class RecorderSession {
+
+        /*
+         * Все native/media ресурсы этой записи
+         * принадлежат только этой session.
+         */
+        private final Object resourceLock =
+                new Object();
+
+        private final File outputFile;
+
+        /*
+         * P0.1:
+         * очередь намеренно остаётся unbounded.
+         *
+         * В P0.2 будет bounded capacity +
+         * explicit overflow policy.
+         */
+        private final LinkedBlockingQueue<PcmChunk> pcmQueue =
+                new LinkedBlockingQueue<>();
+
+        private volatile SessionState state =
+                SessionState.PREPARING;
+
+        private volatile boolean paused =
+                false;
+
+        private volatile boolean stopRequested =
+                false;
+
+        private volatile boolean forceFailure =
+                false;
+
+        private volatile boolean captureSuccess =
+                false;
+
+        private volatile boolean encoderSuccess =
+                false;
+
+        private volatile boolean captureFinished =
+                false;
+
+        private volatile boolean encoderFinished =
+                false;
+
+        private volatile int maxAmplitude =
+                0;
+
+        private volatile Thread captureThread;
+
+        private volatile Thread encoderThread;
+
+        private AudioRecord audioRecord;
+
+        private MediaCodec encoder;
+
+        private MediaMuxer muxer;
+
+        private volatile boolean muxerStarted =
+                false;
+
+        private volatile int muxerTrackIndex =
+                -1;
+
+        /*
+         * Эти поля изменяет encoder worker.
+         */
+        private long totalPcmSamples =
+                0L;
+
+        private long firstEncoderPresentationTimeUs =
+                Long.MIN_VALUE;
+
+        private long lastMuxerPresentationTimeUs =
+                -1L;
+
+        private RecorderSession(
+                @NonNull File outputFile
+        ) {
+
+            this.outputFile =
+                    outputFile;
+        }
+    }
+
+    /*
+     * =========================================================
+     * PCM CHUNK
+     * =========================================================
+     */
 
     private static final class PcmChunk {
 

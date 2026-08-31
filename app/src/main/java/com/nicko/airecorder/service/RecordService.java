@@ -22,7 +22,20 @@ public class RecordService extends Service {
     public static final String CHANNEL_ID =
             "record_channel";
 
-    private boolean isRecording = false;
+    /*
+     * =========================================================
+     * STATE
+     * =========================================================
+     */
+
+    private boolean isRecording =
+            false;
+
+    /*
+     * =========================================================
+     * COMPONENTS
+     * =========================================================
+     */
 
     private RecordServiceController controller;
 
@@ -32,19 +45,31 @@ public class RecordService extends Service {
 
     private NotificationController notificationController;
 
+    /*
+     * =========================================================
+     * SERVICE CREATE
+     * =========================================================
+     */
+
     @Override
     public void onCreate() {
 
         super.onCreate();
 
         controller =
-                new RecordServiceController(this);
+                new RecordServiceController(
+                        this
+                );
 
         broadcastManager =
-                new RecordBroadcastManager(this);
+                new RecordBroadcastManager(
+                        this
+                );
 
         notificationController =
-                new NotificationController(this);
+                new NotificationController(
+                        this
+                );
 
         recordTimer =
                 new RecordTimer(
@@ -54,9 +79,12 @@ public class RecordService extends Service {
                             @Override
                             public int getAmplitude() {
 
+                                if (controller == null) {
+                                    return 0;
+                                }
+
                                 return controller
                                         .getMaxAmplitude();
-
                             }
 
                             @Override
@@ -64,11 +92,14 @@ public class RecordService extends Service {
                                     long duration
                             ) {
 
+                                if (broadcastManager == null) {
+                                    return;
+                                }
+
                                 broadcastManager
                                         .sendRecordTime(
                                                 duration
                                         );
-
                             }
 
                             @Override
@@ -76,18 +107,24 @@ public class RecordService extends Service {
                                     int amplitude
                             ) {
 
+                                if (broadcastManager == null) {
+                                    return;
+                                }
+
                                 broadcastManager
                                         .sendAmplitude(
                                                 amplitude
                                         );
-
                             }
-
                         }
-
                 );
-
     }
+
+    /*
+     * =========================================================
+     * COMMANDS
+     * =========================================================
+     */
 
     @Override
     public int onStartCommand(
@@ -97,6 +134,7 @@ public class RecordService extends Service {
     ) {
 
         if (intent == null) {
+
             return START_NOT_STICKY;
         }
 
@@ -126,22 +164,49 @@ public class RecordService extends Service {
         } else if (RecordActions.ACTION_REQUEST_STATE
                 .equals(action)) {
 
-            sendCurrentState(startId);
-
+            sendCurrentState(
+                    startId
+            );
         }
 
         return START_NOT_STICKY;
-
     }
+
+    /*
+     * =========================================================
+     * START RECORDING
+     * =========================================================
+     */
 
     private void startRecording() {
 
         if (isRecording) {
+
+            return;
+        }
+
+        if (controller == null
+                || recordTimer == null
+                || notificationController == null) {
+
+            Log.e(
+                    TAG,
+                    "Компоненты RecordService не инициализированы"
+            );
+
+            stopSelf();
+
             return;
         }
 
         try {
 
+            /*
+             * Сначала переводим Service в foreground.
+             *
+             * Это должно произойти до длительной
+             * подготовки recording pipeline.
+             */
             startForeground(
 
                     NotificationController.NOTIFICATION_ID,
@@ -152,12 +217,12 @@ public class RecordService extends Service {
                                             R.string.record_preparing
                                     )
                             )
-
             );
 
             controller.startRecording();
 
-            isRecording = true;
+            isRecording =
+                    true;
 
             recordTimer.start();
 
@@ -171,96 +236,186 @@ public class RecordService extends Service {
                     e
             );
 
-            isRecording = false;
+            isRecording =
+                    false;
 
             recordTimer.stop();
 
-            stopForeground(true);
+            stopForeground(
+                    true
+            );
 
             stopSelf();
-
         }
-
     }
+
+    /*
+     * =========================================================
+     * PAUSE RECORDING
+     * =========================================================
+     */
 
     private void pauseRecording() {
 
         if (!isRecording
-                || controller.isPaused()) {
+                || controller == null
+                || recordTimer == null) {
 
             return;
-
         }
 
-        if (controller.pauseRecording()) {
+        if (controller.isPaused()) {
 
-            recordTimer.pause();
-
-            notifyRecordingPaused();
-
+            return;
         }
 
+        boolean pauseSuccess =
+                controller.pauseRecording();
+
+        if (!pauseSuccess) {
+
+            Log.w(
+                    TAG,
+                    "AudioRecorder не смог перейти в Pause"
+            );
+
+            return;
+        }
+
+        recordTimer.pause();
+
+        notifyRecordingPaused();
     }
+
+    /*
+     * =========================================================
+     * RESUME RECORDING
+     * =========================================================
+     */
 
     private void resumeRecording() {
 
         if (!isRecording
-                || !controller.isPaused()) {
+                || controller == null
+                || recordTimer == null) {
 
             return;
-
         }
 
-        if (controller.resumeRecording()) {
+        if (!controller.isPaused()) {
 
-            recordTimer.resume();
-
-            notifyRecordingResumed();
-
+            return;
         }
 
+        boolean resumeSuccess =
+                controller.resumeRecording();
+
+        if (!resumeSuccess) {
+
+            Log.w(
+                    TAG,
+                    "AudioRecorder не смог продолжить запись"
+            );
+
+            return;
+        }
+
+        recordTimer.resume();
+
+        notifyRecordingResumed();
     }
+
+    /*
+     * =========================================================
+     * STOP RECORDING
+     * =========================================================
+     */
 
     private void stopRecording() {
 
-        if (!isRecording) {
+        if (!isRecording
+                || controller == null
+                || recordTimer == null) {
+
             return;
         }
 
+        /*
+         * Stop больше не принимаем повторно.
+         *
+         * Это также предотвращает двойную
+         * финализацию одной RecorderSession.
+         */
+        isRecording =
+                false;
+
+        /*
+         * Сначала останавливаем UI timer.
+         *
+         * Он больше не должен отправлять
+         * amplitude/time broadcasts.
+         */
+        recordTimer.stop();
+
+        long duration =
+                recordTimer.getDuration();
+
+        boolean stopSuccess =
+                false;
+
+        boolean saveSuccess =
+                false;
+
         try {
 
-            recordTimer.stop();
-
-            long duration =
-                    recordTimer.getDuration();
-
-            boolean stopSuccess =
+            /*
+             * =================================================
+             * AUDIO FINALIZATION
+             * =================================================
+             *
+             * stopRecording() возвращает true ТОЛЬКО когда:
+             *
+             * - capture worker завершился;
+             * - encoder worker завершился;
+             * - MediaCodec корректно завершён;
+             * - MediaMuxer корректно завершён;
+             * - итоговый файл существует.
+             */
+            stopSuccess =
                     controller.stopRecording();
-
-            boolean saveSuccess =
-                    controller.saveRecord(
-                            duration
-                    );
 
             if (!stopSuccess) {
 
-                Log.w(
-                        TAG,
-                        "Остановка аудиозаписи завершилась с ошибкой"
-                );
-
-            }
-
-            if (!saveSuccess) {
-
                 Log.e(
                         TAG,
-                        "Запись не удалось сохранить"
+                        "RecorderSession не была корректно финализирована"
                 );
 
-            }
+            } else {
 
-            notifyRecordingStopped();
+                /*
+                 * =============================================
+                 * DATABASE SAVE
+                 * =============================================
+                 *
+                 * КРИТИЧЕСКОЕ ПРАВИЛО P0.1:
+                 *
+                 * Room insert выполняется только после
+                 * успешной полной финализации M4A.
+                 */
+                saveSuccess =
+                        controller.saveRecord(
+                                duration
+                        );
+
+                if (!saveSuccess) {
+
+                    Log.e(
+                            TAG,
+                            "Финализированный файл не удалось сохранить в Room"
+                    );
+                }
+            }
 
         } catch (Exception e) {
 
@@ -270,23 +425,78 @@ public class RecordService extends Service {
                     e
             );
 
+            stopSuccess =
+                    false;
+
+            saveSuccess =
+                    false;
+
         } finally {
 
-            isRecording = false;
+            /*
+             * =================================================
+             * UI STATE
+             * =================================================
+             *
+             * Для UI recording lifecycle завершён независимо
+             * от того, был ли файл успешно сохранён.
+             */
+            notifyRecordingStopped();
 
+            /*
+             * На всякий случай timer остаётся остановленным.
+             */
             recordTimer.stop();
 
-            stopForeground(true);
+            /*
+             * Foreground notification больше не нужна.
+             */
+            stopForeground(
+                    true
+            );
 
+            /*
+             * Завершаем Service.
+             *
+             * Если worker внутри AudioRecorder пережил timeout,
+             * он работает только со своей RecorderSession и
+             * больше не может затронуть ресурсы следующей session.
+             */
             stopSelf();
-
         }
 
+        /*
+         * Отдельный итоговый log удобен для regression test.
+         */
+        Log.d(
+                TAG,
+                "Stop result: stopSuccess="
+                        + stopSuccess
+                        + ", saveSuccess="
+                        + saveSuccess
+        );
     }
+
+    /*
+     * =========================================================
+     * REQUEST CURRENT STATE
+     * =========================================================
+     */
 
     private void sendCurrentState(
             int startId
     ) {
+
+        if (broadcastManager == null
+                || recordTimer == null
+                || controller == null) {
+
+            stopSelf(
+                    startId
+            );
+
+            return;
+        }
 
         if (!isRecording) {
 
@@ -294,18 +504,21 @@ public class RecordService extends Service {
                     .sendRecordStopped();
 
             broadcastManager
-                    .sendRecordTime(0L);
+                    .sendRecordTime(
+                            0L
+                    );
 
             /*
-             * ACTION_REQUEST_STATE может создать сервис,
-             * если записи сейчас нет.
+             * ACTION_REQUEST_STATE может создать Service,
+             * когда активной записи нет.
              *
-             * После ответа пустой сервис нам не нужен.
+             * Такой пустой Service сразу завершаем.
              */
-            stopSelf(startId);
+            stopSelf(
+                    startId
+            );
 
             return;
-
         }
 
         if (controller.isPaused()) {
@@ -317,15 +530,19 @@ public class RecordService extends Service {
 
             broadcastManager
                     .sendRecordStarted();
-
         }
 
         broadcastManager
                 .sendRecordTime(
                         recordTimer.getDuration()
                 );
-
     }
+
+    /*
+     * =========================================================
+     * RECORDING STARTED
+     * =========================================================
+     */
 
     private void notifyRecordingStarted() {
 
@@ -335,10 +552,18 @@ public class RecordService extends Service {
                 )
         );
 
-        broadcastManager
-                .sendRecordStarted();
+        if (broadcastManager != null) {
 
+            broadcastManager
+                    .sendRecordStarted();
+        }
     }
+
+    /*
+     * =========================================================
+     * RECORDING PAUSED
+     * =========================================================
+     */
 
     private void notifyRecordingPaused() {
 
@@ -348,10 +573,18 @@ public class RecordService extends Service {
                 )
         );
 
-        broadcastManager
-                .sendRecordPaused();
+        if (broadcastManager != null) {
 
+            broadcastManager
+                    .sendRecordPaused();
+        }
     }
+
+    /*
+     * =========================================================
+     * RECORDING RESUMED
+     * =========================================================
+     */
 
     private void notifyRecordingResumed() {
 
@@ -361,47 +594,91 @@ public class RecordService extends Service {
                 )
         );
 
-        broadcastManager
-                .sendRecordResumed();
+        if (broadcastManager != null) {
 
+            broadcastManager
+                    .sendRecordResumed();
+        }
     }
+
+    /*
+     * =========================================================
+     * RECORDING STOPPED
+     * =========================================================
+     */
 
     private void notifyRecordingStopped() {
 
+        if (broadcastManager == null) {
+
+            return;
+        }
+
         broadcastManager
                 .sendRecordStopped();
-
     }
+
+    /*
+     * =========================================================
+     * NOTIFICATION UPDATE
+     * =========================================================
+     */
 
     private void updateRecordingNotification(
             String text
     ) {
 
-        notificationController
-                .updateNotification(text);
+        if (notificationController == null) {
 
+            return;
+        }
+
+        notificationController
+                .updateNotification(
+                        text
+                );
     }
+
+    /*
+     * =========================================================
+     * SERVICE DESTROY
+     * =========================================================
+     */
 
     @Override
     public void onDestroy() {
 
+        /*
+         * Timer никогда не должен оставлять
+         * callbacks после уничтожения Service.
+         */
         if (recordTimer != null) {
 
             recordTimer.stop();
-
         }
 
+        /*
+         * Repository executor закрывается.
+         *
+         * AudioRecorder workers при этом владеют
+         * своими RecorderSession независимо.
+         */
         if (controller != null) {
 
             controller.shutdown();
-
         }
 
-        isRecording = false;
+        isRecording =
+                false;
 
         super.onDestroy();
-
     }
+
+    /*
+     * =========================================================
+     * BIND
+     * =========================================================
+     */
 
     @Nullable
     @Override
@@ -410,7 +687,5 @@ public class RecordService extends Service {
     ) {
 
         return null;
-
     }
-
 }
