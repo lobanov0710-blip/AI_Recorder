@@ -602,23 +602,7 @@ public class PlayerActivity
         dialogManager.showDeleteDialog(
                 () -> {
 
-                    handler.removeCallbacks(
-                            updateRunnable
-                    );
-
-                    /*
-                     * Освобождаем MediaPlayer перед
-                     * физическим удалением файла.
-                     */
-                    playerController.release();
-
-                    File file =
-                            new File(
-                                    filePath
-                            );
-
-                    if (file.exists()
-                            && !file.delete()) {
+                    if (recordId <= 0L) {
 
                         showToast(
                                 getString(
@@ -626,28 +610,79 @@ public class PlayerActivity
                                 )
                         );
 
-                        /*
-                         * Не удаляем запись из БД,
-                         * если физический файл
-                         * удалить не удалось.
-                         */
                         return;
                     }
 
-                    if (recordId != -1) {
+                    handler.removeCallbacks(
+                            updateRunnable
+                    );
 
-                        viewModel.delete(
-                                recordId
-                        );
-                    }
+                    /*
+                     * ВАЖНО:
+                     *
+                     * MediaPlayer пока НЕ release.
+                     *
+                     * На Android/Linux открытый file descriptor
+                     * не мешает filesystem unlink.
+                     *
+                     * Если Repository delete завершится ошибкой,
+                     * Player остаётся полностью рабочим.
+                     *
+                     * Это также устраняет существующий failure path,
+                     * где delete failure оставлял экран
+                     * с уже released MediaPlayer.
+                     */
+                    viewModel.deleteRecord(
 
-                    WaveformCache
-                            .getInstance()
-                            .remove(
-                                    filePath
-                            );
+                            recordId,
 
-                    finish();
+                            filePath,
+
+                            success -> {
+
+                                if (!success) {
+
+                                    showToast(
+                                            getString(
+                                                    R.string.delete_error
+                                            )
+                                    );
+
+                                    /*
+                                     * Если запись играла,
+                                     * callback обновления позиции
+                                     * был снят выше.
+                                     *
+                                     * Возвращаем его только если
+                                     * воспроизведение всё ещё идёт.
+                                     */
+                                    if (playerController != null
+                                            && playerController.isPlaying()) {
+
+                                        updateSeek();
+                                    }
+
+                                    return;
+                                }
+
+                                /*
+                                 * DB + filesystem delete подтверждены.
+                                 */
+
+                                WaveformCache
+                                        .getInstance()
+                                        .remove(
+                                                filePath
+                                        );
+
+                                if (playerController != null) {
+
+                                    playerController.release();
+                                }
+
+                                finish();
+                            }
+                    );
                 }
         );
     }

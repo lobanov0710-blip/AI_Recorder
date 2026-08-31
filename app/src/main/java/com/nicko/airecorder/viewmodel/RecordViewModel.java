@@ -17,23 +17,52 @@ import com.nicko.airecorder.service.RecordService;
 
 import java.util.List;
 
-public class RecordViewModel extends AndroidViewModel {
+public class RecordViewModel
+        extends AndroidViewModel {
+
+    /*
+     * =========================================================
+     * REPOSITORY
+     * =========================================================
+     */
 
     private final RecordRepository repository;
+
+    /*
+     * =========================================================
+     * RECORDING STATE
+     * =========================================================
+     */
 
     private final MutableLiveData<RecordingState> recordingState =
             new MutableLiveData<>();
 
+    /*
+     * =========================================================
+     * RECORD LIST
+     * =========================================================
+     */
+
     private final LiveData<List<RecordEntity>> records;
+
+    /*
+     * =========================================================
+     * CONSTRUCTOR
+     * =========================================================
+     */
 
     public RecordViewModel(
             @NonNull Application application
     ) {
 
-        super(application);
+        super(
+                application
+        );
 
         repository =
-                new RecordRepository(application);
+                new RecordRepository(
+                        application
+                );
 
         records =
                 repository.getAll();
@@ -41,27 +70,57 @@ public class RecordViewModel extends AndroidViewModel {
         recordingState.setValue(
                 RecordingState.IDLE
         );
-
     }
+
+    /*
+     * =========================================================
+     * GETTERS
+     * =========================================================
+     */
 
     public LiveData<RecordingState> getRecordingState() {
 
         return recordingState;
-
     }
 
     public LiveData<List<RecordEntity>> getRecords() {
 
         return records;
-
     }
+
+    /*
+     * =========================================================
+     * RECONCILIATION
+     * =========================================================
+     *
+     * Запускается MainActivity при создании.
+     *
+     * Repository выполняет всю работу
+     * на background executor.
+     */
+    public void reconcileStorage() {
+
+        repository.reconcileStorage();
+    }
+
+    /*
+     * =========================================================
+     * REQUEST CURRENT SERVICE STATE
+     * =========================================================
+     */
+
     public void requestRecordingState() {
 
         sendServiceAction(
                 RecordActions.ACTION_REQUEST_STATE
         );
-
     }
+
+    /*
+     * =========================================================
+     * START
+     * =========================================================
+     */
 
     public void startRecording() {
 
@@ -70,40 +129,58 @@ public class RecordViewModel extends AndroidViewModel {
 
         if (state == RecordingState.RECORDING
                 || state == RecordingState.PAUSED) {
+
             return;
         }
 
         sendServiceAction(
                 RecordActions.ACTION_START
         );
-
     }
+
+    /*
+     * =========================================================
+     * PAUSE
+     * =========================================================
+     */
 
     public void pauseRecording() {
 
         if (recordingState.getValue()
                 != RecordingState.RECORDING) {
+
             return;
         }
 
         sendServiceAction(
                 RecordActions.ACTION_PAUSE
         );
-
     }
+
+    /*
+     * =========================================================
+     * RESUME
+     * =========================================================
+     */
 
     public void resumeRecording() {
 
         if (recordingState.getValue()
                 != RecordingState.PAUSED) {
+
             return;
         }
 
         sendServiceAction(
                 RecordActions.ACTION_RESUME
         );
-
     }
+
+    /*
+     * =========================================================
+     * STOP
+     * =========================================================
+     */
 
     public void stopRecording() {
 
@@ -112,75 +189,95 @@ public class RecordViewModel extends AndroidViewModel {
 
         if (state != RecordingState.RECORDING
                 && state != RecordingState.PAUSED) {
+
             return;
         }
 
         sendServiceAction(
                 RecordActions.ACTION_STOP
         );
-
     }
+
+    /*
+     * =========================================================
+     * STATE FROM SERVICE
+     * =========================================================
+     */
 
     public void setRecording() {
 
         if (recordingState.getValue()
                 == RecordingState.RECORDING) {
+
             return;
         }
 
         recordingState.setValue(
                 RecordingState.RECORDING
         );
-
     }
 
     public void setPaused() {
 
         if (recordingState.getValue()
                 == RecordingState.PAUSED) {
+
             return;
         }
 
         recordingState.setValue(
                 RecordingState.PAUSED
         );
-
     }
 
     public void setResumed() {
 
         if (recordingState.getValue()
                 == RecordingState.RECORDING) {
+
             return;
         }
 
         recordingState.setValue(
                 RecordingState.RECORDING
         );
-
     }
 
     public void setStopped() {
 
         if (recordingState.getValue()
                 == RecordingState.IDLE) {
+
             return;
         }
 
         recordingState.setValue(
                 RecordingState.IDLE
         );
-
     }
+
+    /*
+     * =========================================================
+     * RENAME
+     * =========================================================
+     */
 
     public void rename(
             long id,
             String title
     ) {
 
-        String newTitle = title.trim();
+        if (id <= 0L
+                || title == null) {
+
+            return;
+        }
+
+        String newTitle =
+                title.trim();
 
         if (newTitle.isEmpty()) {
+
             return;
         }
 
@@ -188,20 +285,61 @@ public class RecordViewModel extends AndroidViewModel {
                 id,
                 newTitle
         );
-
     }
 
-    public void delete(long id) {
+    /*
+     * =========================================================
+     * CONSISTENT DELETE
+     * =========================================================
+     *
+     * Activity больше не удаляет File самостоятельно.
+     *
+     * Repository управляет:
+     *
+     * filesystem
+     * +
+     * Room
+     */
+    public void deleteRecord(
+            long id,
+            String filePath,
+            RecordRepository.OperationCallback callback
+    ) {
 
-        if (id <= 0) {
+        if (id <= 0L) {
+
+            if (callback != null) {
+
+                callback.onComplete(
+                        false
+                );
+            }
+
             return;
         }
 
-        repository.delete(id);
-
+        repository.deleteRecord(
+                id,
+                filePath,
+                callback
+        );
     }
 
-    private void sendServiceAction(String action) {
+    /*
+     * =========================================================
+     * SERVICE COMMAND
+     * =========================================================
+     */
+
+    private void sendServiceAction(
+            String action
+    ) {
+
+        if (action == null
+                || action.trim().isEmpty()) {
+
+            return;
+        }
 
         Intent intent =
                 new Intent(
@@ -209,23 +347,35 @@ public class RecordViewModel extends AndroidViewModel {
                         RecordService.class
                 );
 
-        intent.setAction(action);
+        intent.setAction(
+                action
+        );
 
-        if (RecordActions.ACTION_START.equals(action)
+        if (RecordActions.ACTION_START.equals(
+                action
+        )
                 && Build.VERSION.SDK_INT
                 >= Build.VERSION_CODES.O) {
 
             getApplication()
-                    .startForegroundService(intent);
+                    .startForegroundService(
+                            intent
+                    );
 
         } else {
 
             getApplication()
-                    .startService(intent);
-
+                    .startService(
+                            intent
+                    );
         }
-
     }
+
+    /*
+     * =========================================================
+     * CLEAR
+     * =========================================================
+     */
 
     @Override
     protected void onCleared() {
@@ -233,7 +383,5 @@ public class RecordViewModel extends AndroidViewModel {
         repository.shutdown();
 
         super.onCleared();
-
     }
-
 }

@@ -29,7 +29,6 @@ import com.nicko.airecorder.utils.PermissionManager;
 import com.nicko.airecorder.utils.SystemBarsManager;
 import com.nicko.airecorder.viewmodel.RecordViewModel;
 
-import java.io.File;
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
@@ -153,6 +152,18 @@ public class MainActivity extends AppCompatActivity {
                         .get(
                                 RecordViewModel.class
                         );
+
+        /*
+         * =====================================================
+         * STORAGE ↔ ROOM RECOVERY
+         * =====================================================
+         *
+         * Проверяет consistency после предыдущего
+         * аварийного завершения процесса.
+         *
+         * Выполняется на Repository executor.
+         */
+        viewModel.reconcileStorage();
 
         /*
          * =====================================================
@@ -965,44 +976,44 @@ public class MainActivity extends AppCompatActivity {
     ) {
 
         if (item == null) {
+
             return;
         }
 
         dialogManager.showDeleteDialog(
                 () -> {
 
-                    String filePath =
-                            item.getFilePath();
+                    /*
+                     * Activity больше не управляет
+                     * физическим файлом.
+                     *
+                     * Полная consistency операция:
+                     *
+                     * filesystem
+                     * +
+                     * Room
+                     *
+                     * выполняется Repository.
+                     */
+                    viewModel.deleteRecord(
 
-                    if (filePath == null
-                            || filePath.trim().isEmpty()) {
+                            item.getId(),
 
-                        viewModel.delete(
-                                item.getId()
-                        );
+                            item.getFilePath(),
 
-                        return;
-                    }
+                            success -> {
 
-                    File file =
-                            new File(
-                                    filePath
-                            );
+                                if (success) {
 
-                    if (file.exists()
-                            && !file.delete()) {
+                                    return;
+                                }
 
-                        showToast(
-                                getString(
-                                        R.string.delete_error
-                                )
-                        );
-
-                        return;
-                    }
-
-                    viewModel.delete(
-                            item.getId()
+                                showToast(
+                                        getString(
+                                                R.string.delete_error
+                                        )
+                                );
+                            }
                     );
                 }
         );

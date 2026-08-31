@@ -15,11 +15,67 @@ public class RecordServiceController {
     private static final String TAG =
             "RecordServiceController";
 
+    /*
+     * =========================================================
+     * FILE NAMING
+     * =========================================================
+     */
+
+    private static final String RECORD_PREFIX =
+            "record_";
+
+    private static final String FINAL_EXTENSION =
+            ".m4a";
+
+    private static final String PENDING_EXTENSION =
+            ".pending.m4a";
+
+    /*
+     * =========================================================
+     * COMPONENTS
+     * =========================================================
+     */
+
     private final AudioRecorder audioRecorder;
 
     private final RecordRepository repository;
 
     private final Context context;
+
+    /*
+     * =========================================================
+     * CURRENT RECORDING FILE STATE
+     * =========================================================
+     *
+     * Во время записи AudioRecorder пишет только в:
+     *
+     * record_<timestamp>.pending.m4a
+     *
+     * После successful stop + media validation
+     * файл становится:
+     *
+     * record_<timestamp>.m4a
+     */
+    private File pendingOutputFile;
+
+    private File finalOutputFile;
+
+    /*
+     * Timestamp создаётся один раз при START.
+     *
+     * Он используется:
+     *
+     * - в имени файла;
+     * - как createdAt в Room.
+     */
+    private long recordingCreatedAt =
+            0L;
+
+    /*
+     * =========================================================
+     * CONSTRUCTOR
+     * =========================================================
+     */
 
     public RecordServiceController(
             Context context
@@ -35,140 +91,590 @@ public class RecordServiceController {
                 new RecordRepository(
                         this.context
                 );
-
     }
+
+    /*
+     * =========================================================
+     * PAUSE
+     * =========================================================
+     */
 
     public boolean pauseRecording() {
 
         return audioRecorder
                 .pauseRecording();
-
     }
+
+    /*
+     * =========================================================
+     * RESUME
+     * =========================================================
+     */
 
     public boolean resumeRecording() {
 
         return audioRecorder
                 .resumeRecording();
-
     }
+
+    /*
+     * =========================================================
+     * STATE
+     * =========================================================
+     */
 
     public boolean isPaused() {
 
         return audioRecorder
                 .isPaused();
-
     }
 
     public boolean isRecording() {
 
         return audioRecorder
                 .isRecording();
-
     }
 
     public int getMaxAmplitude() {
 
         return audioRecorder
                 .getMaxAmplitude();
-
     }
+
+    /*
+     * =========================================================
+     * START RECORDING
+     * =========================================================
+     */
 
     public File startRecording()
             throws Exception {
 
-        String fileName =
-                "record_"
-                        + System.currentTimeMillis()
-                        + ".m4a";
+        /*
+         * Защитный idempotent path.
+         *
+         * Обычно RecordService сам предотвращает
+         * повторный START, но Controller тоже
+         * не должен создавать новое имя файла,
+         * если AudioRecorder уже пишет.
+         */
+        if (audioRecorder.isRecording()) {
 
-        File outputFile =
+            return pendingOutputFile;
+        }
+
+        long createdAt =
+                System.currentTimeMillis();
+
+        String baseName =
+                RECORD_PREFIX
+                        + createdAt;
+
+        File newPendingFile =
                 new File(
                         context.getFilesDir(),
-                        fileName
+                        baseName
+                                + PENDING_EXTENSION
                 );
 
-        audioRecorder.startRecording(
-                outputFile
-        );
+        File newFinalFile =
+                new File(
+                        context.getFilesDir(),
+                        baseName
+                                + FINAL_EXTENSION
+                );
 
-        return outputFile;
+        /*
+         * Timestamp collision практически невозможен,
+         * но существующий FINAL никогда не перезаписываем.
+         */
+        if (newFinalFile.exists()) {
 
+            throw new IllegalStateException(
+                    "Финальный файл записи уже существует: "
+                            + newFinalFile.getAbsolutePath()
+            );
+        }
+
+        /*
+         * Сохраняем metadata до старта pipeline.
+         *
+         * Если startRecording() завершится exception,
+         * catch очистит этот transient state.
+         */
+        recordingCreatedAt =
+                createdAt;
+
+        pendingOutputFile =
+                newPendingFile;
+
+        finalOutputFile =
+                newFinalFile;
+
+        try {
+
+            audioRecorder.startRecording(
+                    newPendingFile
+            );
+
+            Log.d(
+                    TAG,
+                    "Запись начата во временный файл: "
+                            + newPendingFile.getAbsolutePath()
+            );
+
+            return newPendingFile;
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Не удалось запустить запись",
+                    e
+            );
+
+            /*
+             * AudioRecorder сам выполняет cleanup
+             * своих media/native ресурсов.
+             *
+             * Здесь удаляем только оставшийся
+             * filesystem artifact, если он существует
+             * и больше не используется recorder pipeline.
+             *
+             * Если AudioRecorder ещё считает запись активной,
+             * файл не трогаем.
+             */
+
+            clearRecordingFileState();
+
+            throw e;
+        }
     }
+
+    /*
+     * =========================================================
+     * STOP RECORDING
+     * =========================================================
+     */
 
     public boolean stopRecording() {
 
         return audioRecorder
                 .stopRecording();
-
     }
 
+    /*
+     * =========================================================
+     * SAVE RECORD
+     * =========================================================
+     *
+     * Этот метод вызывается только после:
+     *
+     * audioRecorder.stopRecording() == true
+     *
+     * Порядок:
+     *
+     * 1. проверяем pending M4A;
+     * 2. переводим pending → final;
+     * 3. ещё раз проверяем final artifact;
+     * 4. выполняем confirmed Room INSERT;
+     * 5. возвращаем true только после DB commit.
+     */
     public boolean saveRecord(
             long duration
     ) {
 
-        File file =
-                audioRecorder
-                        .getOutputFile();
+        File pendingFile =
+                pendingOutputFile;
 
-        if (!isValidRecording(file)) {
+        File finalFile =
+                finalOutputFile;
 
-            deleteInvalidRecording(
-                    file
-            );
+        long createdAt =
+                recordingCreatedAt;
+
+        /*
+         * =====================================================
+         * INTERNAL STATE VALIDATION
+         * =====================================================
+         */
+
+        if (pendingFile == null
+                || finalFile == null
+                || createdAt <= 0L) {
 
             Log.e(
                     TAG,
-                    "Итоговый файл записи невалиден"
+                    "Отсутствует file state для сохранения записи"
             );
 
             return false;
         }
 
-        repository.insert(
+        /*
+         * P0.1/P0.2 должны вернуть тот же файл,
+         * который был передан AudioRecorder при START.
+         */
+        File recorderOutput =
+                audioRecorder
+                        .getOutputFile();
 
+        if (recorderOutput == null) {
+
+            Log.e(
+                    TAG,
+                    "AudioRecorder не вернул output file"
+            );
+
+            return false;
+        }
+
+        if (!sameFilePath(
+                pendingFile,
+                recorderOutput
+        )) {
+
+            Log.e(
+                    TAG,
+                    "Несовпадение output file. expected="
+                            + pendingFile.getAbsolutePath()
+                            + ", actual="
+                            + recorderOutput.getAbsolutePath()
+            );
+
+            return false;
+        }
+
+        /*
+         * =====================================================
+         * PENDING VALIDATION
+         * =====================================================
+         */
+
+        long actualMediaDuration =
+                readMediaDuration(
+                        pendingFile
+                );
+
+        if (actualMediaDuration <= 0L) {
+
+            Log.e(
+                    TAG,
+                    "Pending M4A не прошёл media validation: "
+                            + pendingFile.getAbsolutePath()
+            );
+
+            /*
+             * Если файл точно невалиден после успешного
+             * recorder stop — он не должен оставаться
+             * как recoverable recording.
+             */
+            deleteFileQuietly(
+                    pendingFile,
+                    "invalid pending recording"
+            );
+
+            clearRecordingFileState();
+
+            return false;
+        }
+
+        /*
+         * =====================================================
+         * PENDING → FINAL
+         * =====================================================
+         *
+         * До этого момента reconciliation не воспринимает
+         * файл как завершённую пользовательскую запись.
+         */
+
+        if (!promotePendingToFinal(
+                pendingFile,
+                finalFile
+        )) {
+
+            Log.e(
+                    TAG,
+                    "Не удалось перевести pending recording в final"
+            );
+
+            /*
+             * Pending оставляем на диске.
+             *
+             * Мы не уничтожаем валидное пользовательское
+             * аудио только из-за filesystem rename failure.
+             */
+            return false;
+        }
+
+        /*
+         * =====================================================
+         * FINAL VALIDATION
+         * =====================================================
+         *
+         * После rename проверяем уже тот artifact,
+         * путь которого попадёт в Room.
+         */
+        long finalMediaDuration =
+                readMediaDuration(
+                        finalFile
+                );
+
+        if (finalMediaDuration <= 0L) {
+
+            Log.e(
+                    TAG,
+                    "Final M4A не прошёл повторную validation: "
+                            + finalFile.getAbsolutePath()
+            );
+
+            /*
+             * Файл уже имеет final-name, но оказался
+             * невалидным.
+             *
+             * Такой artifact нельзя отдавать reconciliation
+             * как нормальную запись.
+             */
+            deleteFileQuietly(
+                    finalFile,
+                    "invalid final recording"
+            );
+
+            clearRecordingFileState();
+
+            return false;
+        }
+
+        /*
+         * =====================================================
+         * DURATION
+         * =====================================================
+         *
+         * Пока сохраняем существующую бизнес-семантику:
+         * duration приходит от RecordTimer.
+         *
+         * Реальную media duration уже получили выше,
+         * но переход persisted duration на media metadata
+         * относится к отдельному AR-008.
+         */
+        long persistedDuration =
+                duration;
+
+        if (persistedDuration < 0L) {
+
+            persistedDuration =
+                    0L;
+        }
+
+        /*
+         * =====================================================
+         * ROOM ENTITY
+         * =====================================================
+         */
+
+        RecordEntity entity =
                 new RecordEntity(
 
-                        file.getName(),
+                        finalFile.getName(),
 
-                        file.getAbsolutePath(),
+                        finalFile.getAbsolutePath(),
 
-                        System.currentTimeMillis(),
+                        createdAt,
 
-                        file.getName(),
+                        finalFile.getName(),
 
-                        duration
+                        persistedDuration
+                );
 
-                )
+        /*
+         * =====================================================
+         * CONFIRMED ROOM INSERT
+         * =====================================================
+         *
+         * insertAndWait() возвращает true только после
+         * фактического завершения Room INSERT.
+         */
+        boolean insertSuccess =
+                repository.insertAndWait(
+                        entity
+                );
 
-        );
+        if (!insertSuccess) {
+
+            Log.e(
+                    TAG,
+                    "Room INSERT не подтверждён. "
+                            + "Final M4A сохранён для recovery: "
+                            + finalFile.getAbsolutePath()
+            );
+
+            /*
+             * КРИТИЧЕСКОЕ РЕШЕНИЕ:
+             *
+             * finalFile НЕ удаляем.
+             *
+             * Это уже валидная пользовательская запись.
+             * Startup reconciliation сможет восстановить
+             * её в Room после сбоя/ошибки БД.
+             *
+             * Удаление здесь создало бы необратимую
+             * потерю аудио.
+             */
+            clearRecordingFileState();
+
+            return false;
+        }
 
         Log.d(
                 TAG,
-                "Запись передана в Room: "
-                        + file.getAbsolutePath()
+                "Запись подтверждённо сохранена в Room: "
+                        + finalFile.getAbsolutePath()
+                        + ", mediaDuration="
+                        + finalMediaDuration
+                        + " ms"
+        );
+
+        /*
+         * Current transaction полностью завершена.
+         */
+        clearRecordingFileState();
+
+        return true;
+    }
+
+    /*
+     * =========================================================
+     * PENDING → FINAL
+     * =========================================================
+     */
+
+    private boolean promotePendingToFinal(
+            File pendingFile,
+            File finalFile
+    ) {
+
+        if (pendingFile == null
+                || finalFile == null) {
+
+            return false;
+        }
+
+        if (!pendingFile.exists()
+                || !pendingFile.isFile()) {
+
+            return false;
+        }
+
+        /*
+         * Никогда не перезаписываем существующий final.
+         */
+        if (finalFile.exists()) {
+
+            Log.e(
+                    TAG,
+                    "Final path уже существует: "
+                            + finalFile.getAbsolutePath()
+            );
+
+            return false;
+        }
+
+        boolean renamed =
+                pendingFile.renameTo(
+                        finalFile
+                );
+
+        if (!renamed) {
+
+            Log.e(
+                    TAG,
+                    "File.renameTo() failed: "
+                            + pendingFile.getAbsolutePath()
+                            + " -> "
+                            + finalFile.getAbsolutePath()
+            );
+
+            return false;
+        }
+
+        /*
+         * Проверяем итоговое состояние filesystem.
+         */
+        if (!finalFile.exists()
+                || !finalFile.isFile()
+                || finalFile.length() <= 0L) {
+
+            Log.e(
+                    TAG,
+                    "Final file отсутствует после rename: "
+                            + finalFile.getAbsolutePath()
+            );
+
+            return false;
+        }
+
+        Log.d(
+                TAG,
+                "Recording promoted: "
+                        + pendingFile.getName()
+                        + " -> "
+                        + finalFile.getName()
         );
 
         return true;
     }
 
-    private boolean isValidRecording(
+    /*
+     * =========================================================
+     * SAME FILE
+     * =========================================================
+     */
+
+    private boolean sameFilePath(
+            File first,
+            File second
+    ) {
+
+        if (first == null
+                || second == null) {
+
+            return false;
+        }
+
+        return first.getAbsolutePath()
+                .equals(
+                        second.getAbsolutePath()
+                );
+    }
+
+    /*
+     * =========================================================
+     * MEDIA VALIDATION / DURATION
+     * =========================================================
+     */
+
+    private long readMediaDuration(
             File file
     ) {
 
         if (file == null) {
-            return false;
+
+            return -1L;
         }
 
         if (!file.exists()) {
-            return false;
+
+            return -1L;
         }
 
         if (!file.isFile()) {
-            return false;
+
+            return -1L;
         }
 
-        if (file.length() <= 0) {
-            return false;
+        if (file.length() <= 0L) {
+
+            return -1L;
         }
 
         MediaMetadataRetriever retriever =
@@ -187,25 +693,29 @@ public class RecordServiceController {
                     );
 
             if (mediaDuration == null) {
-                return false;
+
+                return -1L;
             }
 
-            long duration =
+            long parsedDuration =
                     Long.parseLong(
                             mediaDuration
                     );
 
-            return duration > 0;
+            return parsedDuration > 0L
+                    ? parsedDuration
+                    : -1L;
 
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
 
             Log.e(
                     TAG,
-                    "Не удалось проверить файл записи",
+                    "Не удалось проверить M4A: "
+                            + file.getAbsolutePath(),
                     e
             );
 
-            return false;
+            return -1L;
 
         } finally {
 
@@ -220,15 +730,19 @@ public class RecordServiceController {
                         "Ошибка release MediaMetadataRetriever",
                         e
                 );
-
             }
-
         }
-
     }
 
-    private void deleteInvalidRecording(
-            File file
+    /*
+     * =========================================================
+     * FILE DELETE
+     * =========================================================
+     */
+
+    private void deleteFileQuietly(
+            File file,
+            String reason
     ) {
 
         if (file == null
@@ -241,18 +755,40 @@ public class RecordServiceController {
 
             Log.w(
                     TAG,
-                    "Не удалось удалить повреждённый файл: "
+                    "Не удалось удалить файл ("
+                            + reason
+                            + "): "
                             + file.getAbsolutePath()
             );
-
         }
-
     }
+
+    /*
+     * =========================================================
+     * CLEAR TRANSACTION STATE
+     * =========================================================
+     */
+
+    private void clearRecordingFileState() {
+
+        pendingOutputFile =
+                null;
+
+        finalOutputFile =
+                null;
+
+        recordingCreatedAt =
+                0L;
+    }
+
+    /*
+     * =========================================================
+     * SHUTDOWN
+     * =========================================================
+     */
 
     public void shutdown() {
 
         repository.shutdown();
-
     }
-
 }
