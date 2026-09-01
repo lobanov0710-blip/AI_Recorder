@@ -2,10 +2,12 @@ package com.nicko.airecorder.service;
 
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.os.IBinder;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
+import androidx.core.app.ServiceCompat;
 
 import com.nicko.airecorder.R;
 import com.nicko.airecorder.common.RecordActions;
@@ -207,17 +209,7 @@ public class RecordService extends Service {
              * Это должно произойти до длительной
              * подготовки recording pipeline.
              */
-            startForeground(
-
-                    NotificationController.NOTIFICATION_ID,
-
-                    notificationController
-                            .buildNotification(
-                                    getString(
-                                            R.string.record_preparing
-                                    )
-                            )
-            );
+            promoteToForeground();
 
             controller.startRecording();
 
@@ -241,9 +233,7 @@ public class RecordService extends Service {
 
             recordTimer.stop();
 
-            stopForeground(
-                    true
-            );
+            removeFromForeground();
 
             stopSelf();
         }
@@ -251,9 +241,62 @@ public class RecordService extends Service {
 
     /*
      * =========================================================
+     * FOREGROUND PROMOTION
+     * =========================================================
+     *
+     * Recording использует microphone foreground-service type.
+     *
+     * ServiceCompat:
+     *
+     * - на Android < 10 использует старый startForeground();
+     * - на Android 10+ передаёт foregroundServiceType;
+     * - позволяет сохранить единый код для API 24–36.
+     */
+    private void promoteToForeground() {
+
+        if (notificationController == null) {
+
+            throw new IllegalStateException(
+                    "NotificationController не инициализирован"
+            );
+        }
+
+        ServiceCompat.startForeground(
+
+                this,
+
+                NotificationController.NOTIFICATION_ID,
+
+                notificationController
+                        .buildNotification(
+                                getString(
+                                        R.string.record_preparing
+                                )
+                        ),
+
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        );
+    }
+
+    /*
+     * =========================================================
      * PAUSE RECORDING
      * =========================================================
      */
+
+    /*
+     * =========================================================
+     * FOREGROUND REMOVAL
+     * =========================================================
+     */
+
+    private void removeFromForeground() {
+
+        ServiceCompat.stopForeground(
+                this,
+                ServiceCompat.STOP_FOREGROUND_REMOVE
+        );
+    }
 
     private void pauseRecording() {
 
@@ -451,9 +494,7 @@ public class RecordService extends Service {
             /*
              * Foreground notification больше не нужна.
              */
-            stopForeground(
-                    true
-            );
+            removeFromForeground();
 
             /*
              * Завершаем Service.

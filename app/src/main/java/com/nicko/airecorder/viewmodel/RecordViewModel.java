@@ -2,9 +2,10 @@ package com.nicko.airecorder.viewmodel;
 
 import android.app.Application;
 import android.content.Intent;
-import android.os.Build;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
@@ -19,6 +20,9 @@ import java.util.List;
 
 public class RecordViewModel
         extends AndroidViewModel {
+
+    private static final String TAG =
+            "RecordViewModel";
 
     /*
      * =========================================================
@@ -90,14 +94,10 @@ public class RecordViewModel
 
     /*
      * =========================================================
-     * RECONCILIATION
+     * STORAGE RECONCILIATION
      * =========================================================
-     *
-     * Запускается MainActivity при создании.
-     *
-     * Repository выполняет всю работу
-     * на background executor.
      */
+
     public void reconcileStorage() {
 
         repository.reconcileStorage();
@@ -112,7 +112,8 @@ public class RecordViewModel
     public void requestRecordingState() {
 
         sendServiceAction(
-                RecordActions.ACTION_REQUEST_STATE
+                RecordActions.ACTION_REQUEST_STATE,
+                false
         );
     }
 
@@ -133,9 +134,24 @@ public class RecordViewModel
             return;
         }
 
-        sendServiceAction(
-                RecordActions.ACTION_START
-        );
+        boolean started =
+                sendServiceAction(
+                        RecordActions.ACTION_START,
+                        true
+                );
+
+        /*
+         * UI не должен переходить в RECORDING
+         * до подтверждения от RecordService.
+         *
+         * При системном отказе явно оставляем IDLE.
+         */
+        if (!started) {
+
+            recordingState.setValue(
+                    RecordingState.IDLE
+            );
+        }
     }
 
     /*
@@ -153,7 +169,8 @@ public class RecordViewModel
         }
 
         sendServiceAction(
-                RecordActions.ACTION_PAUSE
+                RecordActions.ACTION_PAUSE,
+                false
         );
     }
 
@@ -172,7 +189,8 @@ public class RecordViewModel
         }
 
         sendServiceAction(
-                RecordActions.ACTION_RESUME
+                RecordActions.ACTION_RESUME,
+                false
         );
     }
 
@@ -194,7 +212,8 @@ public class RecordViewModel
         }
 
         sendServiceAction(
-                RecordActions.ACTION_STOP
+                RecordActions.ACTION_STOP,
+                false
         );
     }
 
@@ -289,17 +308,10 @@ public class RecordViewModel
 
     /*
      * =========================================================
-     * CONSISTENT DELETE
+     * DELETE
      * =========================================================
-     *
-     * Activity больше не удаляет File самостоятельно.
-     *
-     * Repository управляет:
-     *
-     * filesystem
-     * +
-     * Room
      */
+
     public void deleteRecord(
             long id,
             String filePath,
@@ -329,16 +341,24 @@ public class RecordViewModel
      * =========================================================
      * SERVICE COMMAND
      * =========================================================
+     *
+     * foregroundStart = true
+     *
+     * только для ACTION_START.
+     *
+     * Pause / Resume / Stop / RequestState работают
+     * с уже существующим Service либо создают обычный
+     * short-lived Service для state request.
      */
-
-    private void sendServiceAction(
-            String action
+    private boolean sendServiceAction(
+            String action,
+            boolean foregroundStart
     ) {
 
         if (action == null
                 || action.trim().isEmpty()) {
 
-            return;
+            return false;
         }
 
         Intent intent =
@@ -351,23 +371,70 @@ public class RecordViewModel
                 action
         );
 
-        if (RecordActions.ACTION_START.equals(
-                action
-        )
-                && Build.VERSION.SDK_INT
-                >= Build.VERSION_CODES.O) {
+        try {
 
-            getApplication()
-                    .startForegroundService(
-                            intent
-                    );
+            if (foregroundStart) {
 
-        } else {
+                /*
+                 * API 26+:
+                 * Context.startForegroundService()
+                 *
+                 * API < 26:
+                 * Context.startService()
+                 */
+                ContextCompat.startForegroundService(
+                        getApplication(),
+                        intent
+                );
 
-            getApplication()
-                    .startService(
-                            intent
-                    );
+            } else {
+
+                getApplication()
+                        .startService(
+                                intent
+                        );
+            }
+
+            return true;
+
+        } catch (SecurityException e) {
+
+            /*
+             * Возможные причины:
+             *
+             * - отсутствует необходимое permission;
+             * - FGS type не соответствует manifest;
+             * - microphone while-in-use permission
+             *   недоступен в текущем состоянии.
+             */
+            Log.e(
+                    TAG,
+                    "Система запретила запуск RecordService. action="
+                            + action,
+                    e
+            );
+
+            return false;
+
+        } catch (IllegalStateException e) {
+
+            /*
+             * Включает:
+             *
+             * ForegroundServiceStartNotAllowedException
+             * на Android 12+,
+             *
+             * а также ограничения background service
+             * на более старых Android.
+             */
+            Log.e(
+                    TAG,
+                    "RecordService нельзя запустить в текущем состоянии. action="
+                            + action,
+                    e
+            );
+
+            return false;
         }
     }
 
