@@ -80,4 +80,8 @@ dependencies {
     androidTestImplementation(
         libs.ext.junit
     )
+
+    androidTestImplementation(
+        libs.room.testing
+    )
 }
