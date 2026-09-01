@@ -2,46 +2,93 @@ package com.nicko.airecorder.common;
 
 public final class RecordActions {
 
+    /*
+     * =========================================================
+     * NAMESPACE
+     * =========================================================
+     *
+     * Broadcast action namespace глобален в Android.
+     *
+     * Поэтому все собственные actions должны находиться
+     * в namespace нашего applicationId.
+     */
+
+    private static final String ACTION_PREFIX =
+            "com.nicko.airecorder.action.";
+
+    private static final String EXTRA_PREFIX =
+            "com.nicko.airecorder.extra.";
+
     private RecordActions() {
     }
 
+    /*
+     * =========================================================
+     * SERVICE COMMANDS
+     * =========================================================
+     */
+
     public static final String ACTION_START =
-            "START_RECORD";
+            ACTION_PREFIX
+                    + "START_RECORD";
 
     public static final String ACTION_STOP =
-            "STOP_RECORD";
+            ACTION_PREFIX
+                    + "STOP_RECORD";
 
     public static final String ACTION_PAUSE =
-            "PAUSE_RECORD";
+            ACTION_PREFIX
+                    + "PAUSE_RECORD";
 
     public static final String ACTION_RESUME =
-            "RESUME_RECORD";
+            ACTION_PREFIX
+                    + "RESUME_RECORD";
 
     public static final String ACTION_REQUEST_STATE =
-            "REQUEST_RECORD_STATE";
+            ACTION_PREFIX
+                    + "REQUEST_RECORD_STATE";
+
+    /*
+     * =========================================================
+     * SERVICE → UI EVENTS
+     * =========================================================
+     */
 
     public static final String ACTION_RECORD_STARTED =
-            "RECORD_STARTED";
+            ACTION_PREFIX
+                    + "RECORD_STARTED";
 
     public static final String ACTION_RECORD_STOPPED =
-            "RECORD_STOPPED";
+            ACTION_PREFIX
+                    + "RECORD_STOPPED";
 
     public static final String ACTION_RECORD_PAUSED =
-            "RECORD_PAUSED";
+            ACTION_PREFIX
+                    + "RECORD_PAUSED";
 
     public static final String ACTION_RECORD_RESUMED =
-            "RECORD_RESUMED";
+            ACTION_PREFIX
+                    + "RECORD_RESUMED";
 
     public static final String ACTION_RECORD_TIME =
-            "RECORD_TIME";
+            ACTION_PREFIX
+                    + "RECORD_TIME";
 
     public static final String ACTION_RECORD_AMPLITUDE =
-            "com.nicko.airecorder.ACTION_RECORD_AMPLITUDE";
+            ACTION_PREFIX
+                    + "RECORD_AMPLITUDE";
+
+    /*
+     * =========================================================
+     * EXTRAS
+     * =========================================================
+     */
 
     public static final String EXTRA_RECORD_DURATION =
-            "duration";
+            EXTRA_PREFIX
+                    + "RECORD_DURATION";
 
     public static final String EXTRA_RECORD_AMPLITUDE =
-            "amplitude";
-
+            EXTRA_PREFIX
+                    + "RECORD_AMPLITUDE";
 }

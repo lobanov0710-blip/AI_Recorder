@@ -4,6 +4,8 @@ room = "2.7.2"
 agp = "9.3.2"
 splashscreen = "1.2.0"
 
+core = "1.18.0"
+
 junit = "4.13.2"
 junitVersion = "1.1.5"
 espressoCore = "3.7.0"
@@ -25,6 +27,7 @@ appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "a
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 recyclerview = { group = "androidx.recyclerview", name = "recyclerview", version.ref = "recyclerview" }
 core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
+core = { group = "androidx.core", name = "core", version.ref = "core" }
 
 
 [plugins]

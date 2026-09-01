@@ -10,6 +10,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.splashscreen.SplashScreen;
+import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
@@ -717,22 +718,24 @@ public class MainActivity extends AppCompatActivity {
         IntentFilter filter =
                 createRecordIntentFilter();
 
-        if (Build.VERSION.SDK_INT
-                >= Build.VERSION_CODES.TIRAMISU) {
-
-            registerReceiver(
-                    recordReceiver,
-                    filter,
-                    RECEIVER_NOT_EXPORTED
-            );
-
-        } else {
-
-            registerReceiver(
-                    recordReceiver,
-                    filter
-            );
-        }
+        /*
+         * =====================================================
+         * INTERNAL-ONLY RECEIVER
+         * =====================================================
+         *
+         * Receiver принимает события только от
+         * нашего приложения.
+         *
+         * ContextCompat обеспечивает одинаковую
+         * security semantics на поддерживаемых
+         * Android API.
+         */
+        ContextCompat.registerReceiver(
+                this,
+                recordReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+        );
     }
 
     /*

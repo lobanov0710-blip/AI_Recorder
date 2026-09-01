@@ -57,6 +57,8 @@ dependencies {
 
     implementation(libs.appcompat)
 
+    implementation(libs.core)
+
     implementation(libs.material)
 
     implementation(libs.recyclerview)
