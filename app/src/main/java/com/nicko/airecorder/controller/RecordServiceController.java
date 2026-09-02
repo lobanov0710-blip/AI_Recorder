@@ -280,9 +280,7 @@ public class RecordServiceController {
      * 4. выполняем confirmed Room INSERT;
      * 5. возвращаем true только после DB commit.
      */
-    public boolean saveRecord(
-            long duration
-    ) {
+    public boolean saveRecord() {
 
         File pendingFile =
                 pendingOutputFile;
@@ -312,8 +310,10 @@ public class RecordServiceController {
         }
 
         /*
-         * P0.1/P0.2 должны вернуть тот же файл,
-         * который был передан AudioRecorder при START.
+         * P0.1/P0.2 invariant:
+         *
+         * AudioRecorder должен вернуть тот же output,
+         * который был передан ему при START.
          */
         File recorderOutput =
                 audioRecorder
@@ -351,12 +351,12 @@ public class RecordServiceController {
          * =====================================================
          */
 
-        long actualMediaDuration =
+        long pendingMediaDuration =
                 readMediaDuration(
                         pendingFile
                 );
 
-        if (actualMediaDuration <= 0L) {
+        if (pendingMediaDuration <= 0L) {
 
             Log.e(
                     TAG,
@@ -364,11 +364,6 @@ public class RecordServiceController {
                             + pendingFile.getAbsolutePath()
             );
 
-            /*
-             * Если файл точно невалиден после успешного
-             * recorder stop — он не должен оставаться
-             * как recoverable recording.
-             */
             deleteFileQuietly(
                     pendingFile,
                     "invalid pending recording"
@@ -383,9 +378,6 @@ public class RecordServiceController {
          * =====================================================
          * PENDING → FINAL
          * =====================================================
-         *
-         * До этого момента reconciliation не воспринимает
-         * файл как завершённую пользовательскую запись.
          */
 
         if (!promotePendingToFinal(
@@ -399,21 +391,18 @@ public class RecordServiceController {
             );
 
             /*
-             * Pending оставляем на диске.
-             *
-             * Мы не уничтожаем валидное пользовательское
-             * аудио только из-за filesystem rename failure.
+             * Валидный pending не уничтожаем.
              */
             return false;
         }
 
         /*
          * =====================================================
-         * FINAL VALIDATION
+         * FINAL MEDIA VALIDATION
          * =====================================================
          *
-         * После rename проверяем уже тот artifact,
-         * путь которого попадёт в Room.
+         * Именно duration FINAL M4A является
+         * persisted source of truth.
          */
         long finalMediaDuration =
                 readMediaDuration(
@@ -424,17 +413,10 @@ public class RecordServiceController {
 
             Log.e(
                     TAG,
-                    "Final M4A не прошёл повторную validation: "
+                    "Final M4A не прошёл validation: "
                             + finalFile.getAbsolutePath()
             );
 
-            /*
-             * Файл уже имеет final-name, но оказался
-             * невалидным.
-             *
-             * Такой artifact нельзя отдавать reconciliation
-             * как нормальную запись.
-             */
             deleteFileQuietly(
                     finalFile,
                     "invalid final recording"
@@ -447,31 +429,16 @@ public class RecordServiceController {
 
         /*
          * =====================================================
-         * DURATION
-         * =====================================================
-         *
-         * Пока сохраняем существующую бизнес-семантику:
-         * duration приходит от RecordTimer.
-         *
-         * Реальную media duration уже получили выше,
-         * но переход persisted duration на media metadata
-         * относится к отдельному AR-008.
-         */
-        long persistedDuration =
-                duration;
-
-        if (persistedDuration < 0L) {
-
-            persistedDuration =
-                    0L;
-        }
-
-        /*
-         * =====================================================
          * ROOM ENTITY
          * =====================================================
+         *
+         * P1.5:
+         *
+         * duration больше НЕ берётся из RecordTimer.
+         *
+         * Persisted duration = реальная длительность
+         * финализированного media container.
          */
-
         RecordEntity entity =
                 new RecordEntity(
 
@@ -483,17 +450,15 @@ public class RecordServiceController {
 
                         finalFile.getName(),
 
-                        persistedDuration
+                        finalMediaDuration
                 );
 
         /*
          * =====================================================
          * CONFIRMED ROOM INSERT
          * =====================================================
-         *
-         * insertAndWait() возвращает true только после
-         * фактического завершения Room INSERT.
          */
+
         boolean insertSuccess =
                 repository.insertAndWait(
                         entity
@@ -509,16 +474,9 @@ public class RecordServiceController {
             );
 
             /*
-             * КРИТИЧЕСКОЕ РЕШЕНИЕ:
-             *
-             * finalFile НЕ удаляем.
-             *
-             * Это уже валидная пользовательская запись.
-             * Startup reconciliation сможет восстановить
-             * её в Room после сбоя/ошибки БД.
-             *
-             * Удаление здесь создало бы необратимую
-             * потерю аудио.
+             * Валидный final-файл сохраняем.
+             * Startup reconciliation сможет
+             * восстановить запись.
              */
             clearRecordingFileState();
 
@@ -534,9 +492,6 @@ public class RecordServiceController {
                         + " ms"
         );
 
-        /*
-         * Current transaction полностью завершена.
-         */
         clearRecordingFileState();
 
         return true;

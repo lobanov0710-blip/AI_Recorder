@@ -400,9 +400,6 @@ public class RecordService extends Service {
          */
         recordTimer.stop();
 
-        long duration =
-                recordTimer.getDuration();
-
         boolean stopSuccess =
                 false;
 
@@ -447,9 +444,7 @@ public class RecordService extends Service {
                  * успешной полной финализации M4A.
                  */
                 saveSuccess =
-                        controller.saveRecord(
-                                duration
-                        );
+                        controller.saveRecord();
 
                 if (!saveSuccess) {
 
