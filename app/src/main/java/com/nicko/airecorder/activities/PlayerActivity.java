@@ -34,6 +34,8 @@ public class PlayerActivity
 
     private DialogManager dialogManager;
 
+    private WaveformExtractor waveformExtractor;
+
     private final Handler handler =
             new Handler(
                     Looper.getMainLooper()
@@ -96,6 +98,9 @@ public class PlayerActivity
 
         dialogManager =
                 new DialogManager(this);
+
+        waveformExtractor =
+                new WaveformExtractor();
 
         /*
          * =====================================================
@@ -515,6 +520,13 @@ public class PlayerActivity
 
     private void loadWaveform() {
 
+        if (binding == null
+                || filePath == null
+                || filePath.trim().isEmpty()) {
+
+            return;
+        }
+
         int[] cachedWaveform =
                 WaveformCache
                         .getInstance()
@@ -523,7 +535,7 @@ public class PlayerActivity
                         );
 
         /*
-         * Уже есть в памяти.
+         * Уже рассчитан в текущем process.
          */
         if (cachedWaveform != null) {
 
@@ -535,10 +547,11 @@ public class PlayerActivity
             return;
         }
 
-        WaveformExtractor extractor =
-                new WaveformExtractor();
+        if (waveformExtractor == null) {
+            return;
+        }
 
-        extractor.extract(
+        waveformExtractor.extract(
 
                 new File(
                         filePath
@@ -546,6 +559,13 @@ public class PlayerActivity
 
                 result -> {
 
+                    /*
+                     * WaveformExtractor уже сам проверяет
+                     * cancellation.
+                     *
+                     * Activity дополнительно защищает UI
+                     * от callback после уничтожения view.
+                     */
                     if (binding == null
                             || isFinishing()
                             || isDestroyed()) {
@@ -557,13 +577,12 @@ public class PlayerActivity
                         return;
                     }
 
-                    WaveformCache
-                            .getInstance()
-                            .put(
-                                    filePath,
-                                    result
-                            );
-
+                    /*
+                     * Cache здесь повторно НЕ заполняем.
+                     *
+                     * Его владельцем является
+                     * WaveformExtractor.
+                     */
                     binding.waveformView
                             .setWaveform(
                                     result
@@ -876,16 +895,43 @@ public class PlayerActivity
     @Override
     protected void onDestroy() {
 
+        /*
+         * UI callbacks playback больше не нужны.
+         */
         handler.removeCallbacks(
                 updateRunnable
         );
+
+        /*
+         * КРИТИЧНО AR-012:
+         *
+         * Декодирование waveform не должно продолжаться
+         * после уничтожения PlayerActivity.
+         *
+         * cancel():
+         *
+         * - помечает текущую task cancelled;
+         * - вызывает Future.cancel(true);
+         * - decoder loop увидит cancellation;
+         * - finally освободит MediaCodec;
+         * - finally освободит MediaExtractor;
+         * - UI callback больше не обновит Activity.
+         */
+        if (waveformExtractor != null) {
+
+            waveformExtractor.cancel();
+
+            waveformExtractor =
+                    null;
+        }
 
         if (playerController != null) {
 
             playerController.release();
         }
 
-        binding = null;
+        binding =
+                null;
 
         super.onDestroy();
     }

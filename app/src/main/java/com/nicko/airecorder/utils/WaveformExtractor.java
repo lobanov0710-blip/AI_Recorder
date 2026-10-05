@@ -12,10 +12,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class WaveformExtractor {
 
@@ -31,6 +31,12 @@ public class WaveformExtractor {
     private static final double MIN_DB =
             -60.0;
 
+    /*
+     * Waveform extraction выполняется последовательно.
+     *
+     * Одновременная тяжелая media decode работа
+     * для нескольких PlayerActivity не требуется.
+     */
     private static final ExecutorService EXECUTOR =
             Executors.newSingleThreadExecutor();
 
@@ -39,6 +45,23 @@ public class WaveformExtractor {
                     Looper.getMainLooper()
             );
 
+    /*
+     * =========================================================
+     * TASK STATE
+     * =========================================================
+     */
+
+    private final Object taskLock =
+            new Object();
+
+    private ExtractionTask currentTask;
+
+    /*
+     * =========================================================
+     * CALLBACK
+     * =========================================================
+     */
+
     public interface Callback {
 
         void onWaveformReady(
@@ -46,16 +69,28 @@ public class WaveformExtractor {
         );
     }
 
+    /*
+     * =========================================================
+     * EXTRACT
+     * =========================================================
+     */
+
     public void extract(
             File file,
             Callback callback
     ) {
 
+        /*
+         * Один WaveformExtractor обслуживает
+         * только одну актуальную задачу.
+         */
+        cancel();
+
         if (file == null
                 || !file.exists()
                 || !file.isFile()) {
 
-            deliverResult(
+            deliverImmediateResult(
                     callback,
                     new int[0]
             );
@@ -63,17 +98,23 @@ public class WaveformExtractor {
             return;
         }
 
-        WaveformCache cache =
-                WaveformCache.getInstance();
+        String filePath =
+                file.getAbsolutePath();
 
+        /*
+         * Уже рассчитанный waveform повторно
+         * декодировать не нужно.
+         */
         int[] cached =
-                cache.get(
-                        file.getAbsolutePath()
-                );
+                WaveformCache
+                        .getInstance()
+                        .get(
+                                filePath
+                        );
 
         if (cached != null) {
 
-            deliverResult(
+            deliverImmediateResult(
                     callback,
                     cached
             );
@@ -81,26 +122,173 @@ public class WaveformExtractor {
             return;
         }
 
-        EXECUTOR.execute(() -> {
+        ExtractionTask task =
+                new ExtractionTask(
+                        file,
+                        callback
+                );
+
+        synchronized (taskLock) {
+
+            currentTask =
+                    task;
+
+            task.future =
+                    EXECUTOR.submit(
+                            () -> runExtraction(
+                                    task
+                            )
+                    );
+        }
+    }
+
+    /*
+     * =========================================================
+     * CANCEL
+     * =========================================================
+     */
+
+    public void cancel() {
+
+        ExtractionTask task;
+
+        synchronized (taskLock) {
+
+            task =
+                    currentTask;
+
+            currentTask =
+                    null;
+        }
+
+        if (task == null) {
+            return;
+        }
+
+        task.cancelled =
+                true;
+
+        Future<?> future =
+                task.future;
+
+        if (future != null) {
+
+            future.cancel(
+                    true
+            );
+        }
+    }
+
+    /*
+     * =========================================================
+     * WORKER
+     * =========================================================
+     */
+
+    private void runExtraction(
+            ExtractionTask task
+    ) {
+
+        if (task == null) {
+            return;
+        }
+
+        try {
+
+            if (task.isCancelled()) {
+
+                clearTaskIfCurrent(
+                        task
+                );
+
+                return;
+            }
+
+            String filePath =
+                    task.file
+                            .getAbsolutePath();
+
+            /*
+             * Задача могла ждать в single-thread executor.
+             *
+             * За это время waveform этого файла
+             * мог уже появиться в cache.
+             */
+            int[] cached =
+                    WaveformCache
+                            .getInstance()
+                            .get(
+                                    filePath
+                            );
+
+            if (cached != null) {
+
+                deliverTaskResult(
+                        task,
+                        cached
+                );
+
+                return;
+            }
 
             int[] result =
                     buildWaveform(
-                            file
+                            task.file,
+                            task
                     );
 
-            cache.put(
-                    file.getAbsolutePath(),
+            if (task.isCancelled()) {
+
+                clearTaskIfCurrent(
+                        task
+                );
+
+                return;
+            }
+
+            WaveformCache
+                    .getInstance()
+                    .put(
+                            filePath,
+                            result
+                    );
+
+            deliverTaskResult(
+                    task,
                     result
             );
 
-            deliverResult(
-                    callback,
-                    result
+        } catch (Exception e) {
+
+            if (task.isCancelled()) {
+
+                clearTaskIfCurrent(
+                        task
+                );
+
+                return;
+            }
+
+            Log.e(
+                    TAG,
+                    "Ошибка waveform extraction worker",
+                    e
             );
-        });
+
+            deliverTaskResult(
+                    task,
+                    new int[0]
+            );
+        }
     }
 
-    private void deliverResult(
+    /*
+     * =========================================================
+     * RESULT DELIVERY
+     * =========================================================
+     */
+
+    private void deliverImmediateResult(
             Callback callback,
             int[] result
     ) {
@@ -109,19 +297,73 @@ public class WaveformExtractor {
             return;
         }
 
-        mainHandler.post(() ->
-                callback.onWaveformReady(
+        mainHandler.post(
+                () -> callback.onWaveformReady(
                         result
                 )
         );
     }
 
-    private int[] buildWaveform(
-            File file
+    private void deliverTaskResult(
+            ExtractionTask task,
+            int[] result
     ) {
 
-        List<Integer> levels =
-                new ArrayList<>();
+        if (task == null) {
+            return;
+        }
+
+        if (task.callback == null) {
+
+            clearTaskIfCurrent(
+                    task
+            );
+
+            return;
+        }
+
+        mainHandler.post(
+                () -> {
+
+                    try {
+
+                        /*
+                         * Activity могла быть уничтожена
+                         * уже после завершения decoder.
+                         */
+                        if (task.isCancelled()) {
+                            return;
+                        }
+
+                        task.callback
+                                .onWaveformReady(
+                                        result
+                                );
+
+                    } finally {
+
+                        clearTaskIfCurrent(
+                                task
+                        );
+                    }
+                }
+        );
+    }
+
+    /*
+     * =========================================================
+     * BUILD WAVEFORM
+     * =========================================================
+     */
+
+    private int[] buildWaveform(
+            File file,
+            ExtractionTask task
+    ) {
+
+        if (task.isCancelled()) {
+            return new int[0];
+        }
 
         MediaExtractor extractor =
                 new MediaExtractor();
@@ -137,6 +379,10 @@ public class WaveformExtractor {
             extractor.setDataSource(
                     file.getAbsolutePath()
             );
+
+            if (task.isCancelled()) {
+                return new int[0];
+            }
 
             int audioTrack =
                     findAudioTrack(
@@ -171,9 +417,40 @@ public class WaveformExtractor {
                 return new int[0];
             }
 
+            long durationUs =
+                    readDurationUs(
+                            inputFormat
+                    );
+
+            if (durationUs <= 0L) {
+
+                Log.e(
+                        TAG,
+                        "В аудиотреке отсутствует корректная duration"
+                );
+
+                return new int[0];
+            }
+
+            /*
+             * Bounded accumulator:
+             *
+             * независимо от длительности файла
+             * используется фиксированный объём памяти.
+             */
+            WaveformAccumulator accumulator =
+                    new WaveformAccumulator(
+                            TARGET_POINTS,
+                            durationUs
+                    );
+
             extractor.selectTrack(
                     audioTrack
             );
+
+            if (task.isCancelled()) {
+                return new int[0];
+            }
 
             decoder =
                     MediaCodec
@@ -193,22 +470,39 @@ public class WaveformExtractor {
             decoderStarted =
                     true;
 
-            decodeToLevels(
+            decodeToAccumulator(
                     extractor,
                     decoder,
-                    levels
+                    accumulator,
+                    task
             );
+
+            if (task.isCancelled()) {
+                return new int[0];
+            }
+
+            return accumulator
+                    .build();
 
         } catch (Exception e) {
 
-            Log.e(
-                    TAG,
-                    "Ошибка декодирования waveform",
-                    e
-            );
+            if (!task.isCancelled()) {
+
+                Log.e(
+                        TAG,
+                        "Ошибка декодирования waveform",
+                        e
+                );
+            }
+
+            return new int[0];
 
         } finally {
 
+            /*
+             * MediaCodec / MediaExtractor всегда
+             * освобождаются независимо от результата.
+             */
             if (decoder != null) {
 
                 if (decoderStarted) {
@@ -219,11 +513,14 @@ public class WaveformExtractor {
 
                     } catch (Exception e) {
 
-                        Log.w(
-                                TAG,
-                                "Ошибка MediaCodec.stop()",
-                                e
-                        );
+                        if (!task.isCancelled()) {
+
+                            Log.w(
+                                    TAG,
+                                    "Ошибка MediaCodec.stop()",
+                                    e
+                            );
+                        }
                     }
                 }
 
@@ -233,11 +530,14 @@ public class WaveformExtractor {
 
                 } catch (Exception e) {
 
-                    Log.w(
-                            TAG,
-                            "Ошибка MediaCodec.release()",
-                            e
-                    );
+                    if (!task.isCancelled()) {
+
+                        Log.w(
+                                TAG,
+                                "Ошибка MediaCodec.release()",
+                                e
+                        );
+                    }
                 }
             }
 
@@ -247,41 +547,68 @@ public class WaveformExtractor {
 
             } catch (Exception e) {
 
-                Log.w(
-                        TAG,
-                        "Ошибка MediaExtractor.release()",
-                        e
-                );
+                if (!task.isCancelled()) {
+
+                    Log.w(
+                            TAG,
+                            "Ошибка MediaExtractor.release()",
+                            e
+                    );
+                }
             }
         }
-
-        if (levels.isEmpty()) {
-            return new int[0];
-        }
-
-        int[] waveform =
-                new int[
-                        levels.size()
-                        ];
-
-        for (int i = 0;
-             i < levels.size();
-             i++) {
-
-            waveform[i] =
-                    levels.get(i);
-        }
-
-        return compress(
-                waveform,
-                TARGET_POINTS
-        );
     }
 
-    private void decodeToLevels(
+    /*
+     * =========================================================
+     * TRACK DURATION
+     * =========================================================
+     */
+
+    private long readDurationUs(
+            MediaFormat format
+    ) {
+
+        if (format == null
+                || !format.containsKey(
+                MediaFormat.KEY_DURATION
+        )) {
+
+            return 0L;
+        }
+
+        try {
+
+            return Math.max(
+                    0L,
+                    format.getLong(
+                            MediaFormat.KEY_DURATION
+                    )
+            );
+
+        } catch (Exception e) {
+
+            Log.w(
+                    TAG,
+                    "Не удалось прочитать duration аудиотрека",
+                    e
+            );
+
+            return 0L;
+        }
+    }
+
+    /*
+     * =========================================================
+     * DECODE → BOUNDED ACCUMULATOR
+     * =========================================================
+     */
+
+    private void decodeToAccumulator(
             MediaExtractor extractor,
             MediaCodec decoder,
-            List<Integer> levels
+            WaveformAccumulator accumulator,
+            ExtractionTask task
     ) throws IOException {
 
         boolean inputFinished =
@@ -298,16 +625,26 @@ public class WaveformExtractor {
 
         while (!outputFinished) {
 
+            if (task.isCancelled()) {
+                return;
+            }
+
             /*
-             * Feed encoded AAC data
-             * from MediaExtractor into decoder.
+             * =================================================
+             * INPUT
+             * =================================================
              */
+
             if (!inputFinished) {
 
                 int inputIndex =
                         decoder.dequeueInputBuffer(
                                 CODEC_TIMEOUT_US
                         );
+
+                if (task.isCancelled()) {
+                    return;
+                }
 
                 if (inputIndex >= 0) {
 
@@ -366,9 +703,16 @@ public class WaveformExtractor {
                 }
             }
 
+            if (task.isCancelled()) {
+                return;
+            }
+
             /*
-             * Read DECODED PCM.
+             * =================================================
+             * OUTPUT PCM
+             * =================================================
              */
+
             int outputIndex =
                     decoder.dequeueOutputBuffer(
                             bufferInfo,
@@ -406,75 +750,94 @@ public class WaveformExtractor {
                 continue;
             }
 
-            ByteBuffer outputBuffer =
-                    decoder.getOutputBuffer(
-                            outputIndex
+            try {
+
+                ByteBuffer outputBuffer =
+                        decoder.getOutputBuffer(
+                                outputIndex
+                        );
+
+                if (outputBuffer != null
+                        && bufferInfo.size > 0) {
+
+                    ByteBuffer pcm =
+                            outputBuffer.duplicate();
+
+                    pcm.position(
+                            bufferInfo.offset
                     );
 
-            if (outputBuffer != null
-                    && bufferInfo.size > 0) {
+                    pcm.limit(
+                            bufferInfo.offset
+                                    + bufferInfo.size
+                    );
 
-                ByteBuffer pcm =
-                        outputBuffer.duplicate();
+                    pcm =
+                            pcm.slice();
 
-                pcm.position(
-                        bufferInfo.offset
-                );
+                    pcm.order(
+                            ByteOrder.nativeOrder()
+                    );
 
-                pcm.limit(
-                        bufferInfo.offset
-                                + bufferInfo.size
-                );
+                    int level;
 
-                pcm =
-                        pcm.slice();
+                    if (pcmEncoding
+                            == AudioFormat
+                            .ENCODING_PCM_FLOAT) {
 
-                pcm.order(
-                        ByteOrder.nativeOrder()
-                );
+                        level =
+                                calculateFloatPcmLevel(
+                                        pcm
+                                );
 
-                int level;
+                    } else {
 
-                if (pcmEncoding
-                        == AudioFormat
-                        .ENCODING_PCM_FLOAT) {
+                        level =
+                                calculatePcm16Level(
+                                        pcm
+                                );
+                    }
 
-                    level =
-                            calculateFloatPcmLevel(
-                                    pcm
-                            );
-
-                } else {
-
-                    level =
-                            calculatePcm16Level(
-                                    pcm
-                            );
+                    accumulator.add(
+                            Math.max(
+                                    0L,
+                                    bufferInfo.presentationTimeUs
+                            ),
+                            level
+                    );
                 }
 
-                levels.add(
-                        level
+                boolean endOfStream =
+                        (bufferInfo.flags
+                                & MediaCodec
+                                .BUFFER_FLAG_END_OF_STREAM)
+                                != 0;
+
+                if (endOfStream) {
+
+                    outputFinished =
+                            true;
+                }
+
+            } finally {
+
+                /*
+                 * Каждый полученный decoder output
+                 * освобождается ровно один раз.
+                 */
+                decoder.releaseOutputBuffer(
+                        outputIndex,
+                        false
                 );
-            }
-
-            boolean endOfStream =
-                    (bufferInfo.flags
-                            & MediaCodec
-                            .BUFFER_FLAG_END_OF_STREAM)
-                            != 0;
-
-            decoder.releaseOutputBuffer(
-                    outputIndex,
-                    false
-            );
-
-            if (endOfStream) {
-
-                outputFinished =
-                        true;
             }
         }
     }
+
+    /*
+     * =========================================================
+     * AUDIO TRACK
+     * =========================================================
+     */
 
     private int findAudioTrack(
             MediaExtractor extractor
@@ -485,7 +848,9 @@ public class WaveformExtractor {
              i++) {
 
             MediaFormat format =
-                    extractor.getTrackFormat(i);
+                    extractor.getTrackFormat(
+                            i
+                    );
 
             String mime =
                     format.getString(
@@ -503,6 +868,12 @@ public class WaveformExtractor {
 
         return -1;
     }
+
+    /*
+     * =========================================================
+     * PCM 16 LEVEL
+     * =========================================================
+     */
 
     private int calculatePcm16Level(
             ByteBuffer buffer
@@ -549,6 +920,12 @@ public class WaveformExtractor {
                 rms
         );
     }
+
+    /*
+     * =========================================================
+     * FLOAT PCM LEVEL
+     * =========================================================
+     */
 
     private int calculateFloatPcmLevel(
             ByteBuffer buffer
@@ -602,6 +979,12 @@ public class WaveformExtractor {
         );
     }
 
+    /*
+     * =========================================================
+     * RMS → LEVEL
+     * =========================================================
+     */
+
     private int rmsToLevel(
             double rms
     ) {
@@ -643,83 +1026,374 @@ public class WaveformExtractor {
         );
     }
 
-    private int[] compress(
-            int[] source,
-            int targetSize
+    /*
+     * =========================================================
+     * TASK CLEANUP
+     * =========================================================
+     */
+
+    private void clearTaskIfCurrent(
+            ExtractionTask task
     ) {
 
-        if (source == null
-                || source.length == 0) {
+        synchronized (taskLock) {
 
-            return new int[0];
+            if (currentTask == task) {
+
+                currentTask =
+                        null;
+            }
+        }
+    }
+
+    /*
+     * =========================================================
+     * EXTRACTION TASK
+     * =========================================================
+     */
+
+    private static final class ExtractionTask {
+
+        private final File file;
+
+        private final Callback callback;
+
+        private volatile boolean cancelled =
+                false;
+
+        private volatile Future<?> future;
+
+        private ExtractionTask(
+                File file,
+                Callback callback
+        ) {
+
+            this.file =
+                    file;
+
+            this.callback =
+                    callback;
         }
 
-        if (source.length <= targetSize) {
+        private boolean isCancelled() {
 
-            return source;
+            return cancelled
+                    || Thread.currentThread()
+                    .isInterrupted();
         }
+    }
 
-        int[] result =
-                new int[
-                        targetSize
-                        ];
+    /*
+     * =========================================================
+     * BOUNDED WAVEFORM ACCUMULATOR
+     * =========================================================
+     *
+     * Здесь решается AR-012B.
+     *
+     * Раньше:
+     *
+     * каждый decoder output
+     *     ↓
+     * ArrayList<Integer>
+     *     ↓
+     * весь файл хранится в памяти
+     *     ↓
+     * compress до 180 элементов
+     *
+     * Теперь:
+     *
+     * каждый decoder output
+     *     ↓
+     * один из 180 временных buckets
+     *     ↓
+     * итоговый int[180]
+     *
+     * Memory complexity:
+     *
+     * O(TARGET_POINTS), а не O(duration).
+     */
 
-        float step =
-                (float) source.length
-                        / targetSize;
+    private static final class WaveformAccumulator {
 
-        for (int i = 0;
-             i < targetSize;
-             i++) {
+        private final int targetPoints;
 
-            int start =
-                    (int) (
-                            i * step
-                    );
+        private final long durationUs;
 
-            int end =
-                    (int) (
-                            (i + 1)
-                                    * step
-                    );
+        /*
+         * Для длинных записей.
+         */
+        private final long[] bucketSums;
 
-            end =
+        private final int[] bucketCounts;
+
+        /*
+         * Для коротких записей.
+         *
+         * Если decoder выдал <= TARGET_POINTS buffers,
+         * сохраняем прежнее поведение и возвращаем
+         * их непосредственно без искусственных дыр.
+         */
+        private final int[] initialLevels;
+
+        private int totalLevels =
+                0;
+
+        private WaveformAccumulator(
+                int targetPoints,
+                long durationUs
+        ) {
+
+            this.targetPoints =
                     Math.max(
-                            start + 1,
-                            end
+                            1,
+                            targetPoints
                     );
 
-            end =
-                    Math.min(
-                            source.length,
-                            end
+            this.durationUs =
+                    Math.max(
+                            1L,
+                            durationUs
                     );
 
-            long sum =
-                    0L;
+            bucketSums =
+                    new long[
+                            this.targetPoints
+                            ];
 
-            int count =
-                    0;
+            bucketCounts =
+                    new int[
+                            this.targetPoints
+                            ];
 
-            for (int j = start;
-                 j < end;
-                 j++) {
+            initialLevels =
+                    new int[
+                            this.targetPoints
+                            ];
+        }
 
-                sum +=
-                        source[j];
+        private void add(
+                long presentationTimeUs,
+                int level
+        ) {
 
-                count++;
+            int safeLevel =
+                    Math.max(
+                            0,
+                            Math.min(
+                                    100,
+                                    level
+                            )
+                    );
+
+            /*
+             * Первые 180 decoder-levels сохраняем,
+             * чтобы короткий файл выглядел так же,
+             * как до AR-012B.
+             */
+            if (totalLevels
+                    < initialLevels.length) {
+
+                initialLevels[
+                        totalLevels
+                        ] =
+                        safeLevel;
             }
 
-            if (count > 0) {
+            totalLevels++;
+
+            long safeTimeUs =
+                    Math.max(
+                            0L,
+                            Math.min(
+                                    durationUs,
+                                    presentationTimeUs
+                            )
+                    );
+
+            /*
+             * Преобразуем timestamp
+             * в диапазон 0 ... targetPoints-1.
+             */
+            long scaled =
+                    safeTimeUs
+                            * targetPoints;
+
+            int bucket =
+                    (int) (
+                            scaled
+                                    / durationUs
+                    );
+
+            if (bucket >= targetPoints) {
+
+                bucket =
+                        targetPoints - 1;
+            }
+
+            bucket =
+                    Math.max(
+                            0,
+                            bucket
+                    );
+
+            bucketSums[
+                    bucket
+                    ] +=
+                    safeLevel;
+
+            bucketCounts[
+                    bucket
+                    ]++;
+        }
+
+        private int[] build() {
+
+            if (totalLevels <= 0) {
+
+                return new int[0];
+            }
+
+            /*
+             * Короткие записи:
+             *
+             * сохраняем фактическое количество
+             * decoder samples.
+             */
+            if (totalLevels
+                    <= targetPoints) {
+
+                return Arrays.copyOf(
+                        initialLevels,
+                        totalLevels
+                );
+            }
+
+            /*
+             * Длинные записи:
+             *
+             * всегда ровно TARGET_POINTS.
+             */
+            int[] result =
+                    new int[
+                            targetPoints
+                            ];
+
+            for (int i = 0;
+                 i < targetPoints;
+                 i++) {
+
+                int count =
+                        bucketCounts[i];
+
+                if (count <= 0) {
+
+                    result[i] =
+                            -1;
+
+                    continue;
+                }
 
                 result[i] =
                         (int) (
-                                sum / count
+                                bucketSums[i]
+                                        / count
                         );
             }
+
+            fillMissingBuckets(
+                    result
+            );
+
+            return result;
         }
 
-        return result;
+        /*
+         * Из-за timestamp rounding теоретически
+         * некоторые buckets могут остаться пустыми.
+         *
+         * Не отображаем такие места как ложную тишину.
+         * Используем линейную интерполяцию соседей.
+         */
+        private void fillMissingBuckets(
+                int[] values
+        ) {
+
+            if (values == null
+                    || values.length == 0) {
+
+                return;
+            }
+
+            for (int i = 0;
+                 i < values.length;
+                 i++) {
+
+                if (values[i] >= 0) {
+                    continue;
+                }
+
+                int left =
+                        i - 1;
+
+                while (left >= 0
+                        && values[left] < 0) {
+
+                    left--;
+                }
+
+                int right =
+                        i + 1;
+
+                while (right < values.length
+                        && values[right] < 0) {
+
+                    right++;
+                }
+
+                if (left >= 0
+                        && right < values.length) {
+
+                    int leftValue =
+                            values[left];
+
+                    int rightValue =
+                            values[right];
+
+                    float fraction =
+                            (float) (
+                                    i - left
+                            )
+                                    / (
+                                    right - left
+                            );
+
+                    values[i] =
+                            Math.round(
+                                    leftValue
+                                            + (
+                                            rightValue
+                                                    - leftValue
+                                    )
+                                            * fraction
+                            );
+
+                } else if (left >= 0) {
+
+                    values[i] =
+                            values[left];
+
+                } else if (right
+                        < values.length) {
+
+                    values[i] =
+                            values[right];
+
+                } else {
+
+                    values[i] =
+                            0;
+                }
+            }
+        }
     }
 }
