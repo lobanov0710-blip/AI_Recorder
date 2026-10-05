@@ -73,7 +73,7 @@ public class NotificationController {
 
                 .setContentText(text)
 
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.ic_mic_24)
 
                 .setOngoing(true)
 
