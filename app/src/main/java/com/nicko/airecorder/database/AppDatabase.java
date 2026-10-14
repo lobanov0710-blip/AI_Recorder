@@ -8,9 +8,10 @@ import androidx.room.RoomDatabase;
 
 @Database(
         entities = {
-                RecordEntity.class
+                RecordEntity.class,
+                AiAnalysisEntity.class
         },
-        version = 3,
+        version = 4,
         exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -21,6 +22,8 @@ public abstract class AppDatabase extends RoomDatabase {
     private static volatile AppDatabase instance;
 
     public abstract RecordDao recordDao();
+
+    public abstract AiAnalysisDao aiAnalysisDao();
 
     public static AppDatabase getInstance(
             Context context
@@ -38,6 +41,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                             AppDatabase.class,
                                             DATABASE_NAME
                                     )
+                                    .addMigrations(DatabaseMigrations.MIGRATION_3_4)
                                     .build();
 
                 }

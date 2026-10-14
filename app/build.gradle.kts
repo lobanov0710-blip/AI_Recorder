@@ -36,6 +36,12 @@ android {
         viewBinding = true
     }
 
+    sourceSets {
+        getByName("androidTest") {
+            assets.srcDir("$projectDir/schemas")
+        }
+    }
+
     buildTypes {
         release {
             optimization {
