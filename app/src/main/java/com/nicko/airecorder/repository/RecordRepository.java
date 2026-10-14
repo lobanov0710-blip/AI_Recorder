@@ -11,6 +11,7 @@ import androidx.lifecycle.LiveData;
 import com.nicko.airecorder.database.AppDatabase;
 import com.nicko.airecorder.database.RecordDao;
 import com.nicko.airecorder.database.RecordEntity;
+import com.nicko.airecorder.common.RecordOperationLock;
 
 import java.io.File;
 import java.util.HashSet;
@@ -63,7 +64,7 @@ public class RecordRepository {
      * операции между всеми Repository внутри процесса.
      */
     private static final Object CONSISTENCY_LOCK =
-            new Object();
+            RecordOperationLock.LOCK;
 
     private final Context context;
 
@@ -358,7 +359,9 @@ public class RecordRepository {
     private boolean deleteRecordInternal(
             long id,
             String filePath
-    ) {
+    ) throws ExecutionException {
+
+        AiRepository.getInstance(context).cancelAndWait(id);
 
         /*
          * Если filePath отсутствует,
@@ -498,6 +501,8 @@ public class RecordRepository {
                 if (filePath == null
                         || filePath.trim().isEmpty()) {
 
+                    cancelAiBeforeRemoval(entity.getId());
+
                     recordDao.deleteById(
                             entity.getId()
                     );
@@ -519,6 +524,8 @@ public class RecordRepository {
                  */
                 if (!file.exists()
                         || !file.isFile()) {
+
+                    cancelAiBeforeRemoval(entity.getId());
 
                     recordDao.deleteById(
                             entity.getId()
@@ -696,6 +703,14 @@ public class RecordRepository {
                 );
 
         return matcher.matches();
+    }
+
+    private void cancelAiBeforeRemoval(long id) {
+        try {
+            AiRepository.getInstance(context).cancelAndWait(id);
+        } catch (ExecutionException error) {
+            throw new IllegalStateException("Could not cancel AI work before removal", error);
+        }
     }
 
     /*

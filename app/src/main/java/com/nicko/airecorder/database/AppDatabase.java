@@ -11,7 +11,7 @@ import androidx.room.RoomDatabase;
                 RecordEntity.class,
                 AiAnalysisEntity.class
         },
-        version = 4,
+        version = 5,
         exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -41,7 +41,10 @@ public abstract class AppDatabase extends RoomDatabase {
                                             AppDatabase.class,
                                             DATABASE_NAME
                                     )
-                                    .addMigrations(DatabaseMigrations.MIGRATION_3_4)
+                                    .addMigrations(
+                                            DatabaseMigrations.MIGRATION_3_4,
+                                            DatabaseMigrations.MIGRATION_4_5
+                                    )
                                     .build();
 
                 }
