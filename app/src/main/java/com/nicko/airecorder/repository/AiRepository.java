@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 /** Owns the AI queue and its persistent state; shared for the application lifetime. */
-public final class AiRepository {
+public final class AiRepository implements AiDataSource {
     private static volatile AiRepository instance;
     private final AppDatabase database;
     private final AiAnalysisDao analysisDao;
@@ -81,14 +81,22 @@ public final class AiRepository {
         return "ai-record-" + recordId;
     }
 
+    @Override
+    public LiveData<RecordEntity> observeRecord(long recordId) {
+        return database.recordDao().observeById(recordId);
+    }
+
+    @Override
     public LiveData<AiAnalysisEntity> observeAnalysis(long recordId) {
         return analysisDao.observeByRecordId(recordId);
     }
 
+    @Override
     public LiveData<List<WorkInfo>> observeWork(long recordId) {
         return workManager.getWorkInfosForUniqueWorkLiveData(workName(recordId));
     }
 
+    @Override
     public void enqueue(long recordId, @Nullable QueueCallback callback) {
         queueExecutor.execute(() -> {
             try {
@@ -142,6 +150,7 @@ public final class AiRepository {
         });
     }
 
+    @Override
     public void cancel(long recordId, @Nullable QueueCallback callback) {
         queueExecutor.execute(() -> {
             try {
