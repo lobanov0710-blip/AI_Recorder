@@ -71,6 +71,8 @@ dependencies {
 
     implementation(libs.room.runtime)
 
+    implementation(libs.work.runtime)
+
     implementation(libs.core.splashscreen)
 
     annotationProcessor(
@@ -92,4 +94,6 @@ dependencies {
     androidTestImplementation(
         libs.room.testing
     )
+
+    androidTestImplementation(libs.work.testing)
 }

@@ -30,4 +30,12 @@ public final class DatabaseMigrations {
             );
         }
     };
+
+    /** Existing analyses keep their data and have no queued request yet. */
+    public static final Migration MIGRATION_4_5 = new Migration(4, 5) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE `ai_analyses` ADD COLUMN `requestId` TEXT");
+        }
+    };
 }

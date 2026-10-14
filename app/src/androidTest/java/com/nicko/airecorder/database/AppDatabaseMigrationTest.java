@@ -108,4 +108,46 @@ public class AppDatabaseMigrationTest {
             assertEquals(0, cursor.getInt(0));
         }
     }
+
+    @Test
+    public void migration4To5_preservesExistingAnalysisAndAddsNullableRequestId()
+            throws IOException {
+        SupportSQLiteDatabase database = helper.createDatabase(TEST_DATABASE, 4);
+        database.execSQL("INSERT INTO records (id, createdAt, duration) VALUES (17, 1000, 5000)");
+        database.execSQL("INSERT INTO ai_analyses "
+                + "(recordId, status, transcript, summary, suggestedTitle, tasksJson, "
+                + "errorCode, updatedAt, processingVersion) VALUES "
+                + "(17, 'SUCCEEDED', 'Transcript', 'Summary', 'Title', '[\"Task\"]', NULL, 2000, 1)");
+        database.close();
+        database = helper.runMigrationsAndValidate(
+                TEST_DATABASE, 5, true, DatabaseMigrations.MIGRATION_4_5
+        );
+        try (Cursor cursor = database.query("SELECT * FROM ai_analyses WHERE recordId = 17")) {
+            assertTrue(cursor.moveToFirst());
+            assertEquals("SUCCEEDED", cursor.getString(cursor.getColumnIndexOrThrow("status")));
+            assertEquals("Transcript", cursor.getString(cursor.getColumnIndexOrThrow("transcript")));
+            assertEquals("Summary", cursor.getString(cursor.getColumnIndexOrThrow("summary")));
+            assertEquals("Title", cursor.getString(cursor.getColumnIndexOrThrow("suggestedTitle")));
+            assertEquals("[\"Task\"]", cursor.getString(cursor.getColumnIndexOrThrow("tasksJson")));
+            assertEquals(2000L, cursor.getLong(cursor.getColumnIndexOrThrow("updatedAt")));
+            assertEquals(1, cursor.getInt(cursor.getColumnIndexOrThrow("processingVersion")));
+            assertTrue(cursor.isNull(cursor.getColumnIndexOrThrow("errorCode")));
+            assertTrue(cursor.isNull(cursor.getColumnIndexOrThrow("requestId")));
+        }
+    }
+
+    @Test
+    public void migration3To5_supportsTheCompleteUpgradePath() throws IOException {
+        SupportSQLiteDatabase database = helper.createDatabase(TEST_DATABASE, 3);
+        database.execSQL("INSERT INTO records (id, createdAt, duration) VALUES (17, 1000, 5000)");
+        database.close();
+        database = helper.runMigrationsAndValidate(TEST_DATABASE, 5, true,
+                DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5);
+        try (Cursor cursor = database.query("SELECT id, duration FROM records")) {
+            assertEquals(1, cursor.getCount());
+            assertTrue(cursor.moveToFirst());
+            assertEquals(17L, cursor.getLong(0));
+            assertEquals(5000L, cursor.getLong(1));
+        }
+    }
 }

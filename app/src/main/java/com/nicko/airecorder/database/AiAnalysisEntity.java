@@ -52,6 +52,9 @@ public class AiAnalysisEntity {
 
     private int processingVersion;
 
+    @Nullable
+    private String requestId;
+
     public AiAnalysisEntity(
             long recordId,
             @NonNull AiAnalysisStatus status,
@@ -145,5 +148,15 @@ public class AiAnalysisEntity {
             throw new IllegalArgumentException("processingVersion must be positive");
         }
         this.processingVersion = processingVersion;
+    }
+
+    /** UUID of the WorkManager request owning this analysis. Null for legacy rows. */
+    @Nullable
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(@Nullable String requestId) {
+        this.requestId = requestId;
     }
 }

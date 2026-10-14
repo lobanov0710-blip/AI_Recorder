@@ -1,6 +1,7 @@
 package com.nicko.airecorder.database;
 
 import androidx.lifecycle.LiveData;
+import androidx.annotation.Nullable;
 import androidx.room.Dao;
 import androidx.room.Insert;
 import androidx.room.Query;
@@ -9,6 +10,10 @@ import java.util.List;
 
 @Dao
 public interface RecordDao {
+
+    @Nullable
+    @Query("SELECT * FROM records WHERE id = :id")
+    RecordEntity getById(long id);
 
     /*
      * =========================================================

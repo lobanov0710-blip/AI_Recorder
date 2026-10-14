@@ -144,6 +144,65 @@ public class AiAnalysisDaoInstrumentedTest {
         assertEquals(0, analysisDao.deleteByRecordId(recordId));
     }
 
+    @Test
+    public void completionFromOldRequest_cannotOverwriteNewRequest() {
+        long recordId = insertRecord("record_1000.m4a");
+        insertOwnedAnalysis(recordId, "new-request");
+
+        assertEquals(0, analysisDao.complete(recordId, "old-request",
+                "Old transcript", "", "", "[]", 2000L, 1));
+        AiAnalysisEntity stored = analysisDao.getByRecordId(recordId);
+        assertNotNull(stored);
+        assertEquals("new-request", stored.getRequestId());
+        assertNull(stored.getTranscript());
+    }
+
+    @Test
+    public void cancelledRequest_cannotBeCompleted() {
+        long recordId = insertRecord("record_1000.m4a");
+        insertOwnedAnalysis(recordId, "request");
+        assertEquals(1, analysisDao.cancelActive(recordId, 2000L));
+
+        assertEquals(0, analysisDao.complete(recordId, "request", "Late", "", "", "[]", 3000L, 1));
+        AiAnalysisEntity stored = analysisDao.getByRecordId(recordId);
+        assertNotNull(stored);
+        assertEquals(AiAnalysisStatus.CANCELLED, stored.getStatus());
+        assertNull(stored.getTranscript());
+    }
+
+    @Test
+    public void deletedRecord_cannotBeRecreatedByCompletion() {
+        long recordId = insertRecord("record_1000.m4a");
+        insertOwnedAnalysis(recordId, "request");
+        recordDao.deleteById(recordId);
+
+        assertEquals(0, analysisDao.complete(recordId, "request", "Late", "", "", "[]", 3000L, 1));
+        assertNull(analysisDao.getByRecordId(recordId));
+        assertEquals(0, recordDao.getAllSync().size());
+    }
+
+    @Test
+    public void currentRequest_canCompleteOnce() {
+        long recordId = insertRecord("record_1000.m4a");
+        insertOwnedAnalysis(recordId, "request");
+        assertEquals(1, analysisDao.complete(recordId, "request",
+                "Transcript", "Summary", "Suggested", "[\"Task\"]", 2000L, 1));
+        assertEquals(0, analysisDao.complete(recordId, "request",
+                "Repeated", "", "", "[]", 3000L, 1));
+        assertEquals("Original title", recordDao.getById(recordId).getTitle());
+        AiAnalysisEntity stored = analysisDao.getByRecordId(recordId);
+        assertNotNull(stored);
+        assertEquals(AiAnalysisStatus.SUCCEEDED, stored.getStatus());
+        assertEquals("Transcript", stored.getTranscript());
+    }
+
+    private void insertOwnedAnalysis(long recordId, String requestId) {
+        AiAnalysisEntity analysis = new AiAnalysisEntity(
+                recordId, AiAnalysisStatus.RUNNING, 1000L, 1);
+        analysis.setRequestId(requestId);
+        analysisDao.upsert(analysis);
+    }
+
     private long insertRecord(String fileName) {
         return recordDao.insert(new RecordEntity(
                 fileName, "/test/" + fileName, 1000L, "Original title", 5000L
