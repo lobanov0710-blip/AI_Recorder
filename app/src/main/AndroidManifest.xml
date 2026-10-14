@@ -42,6 +42,10 @@
             android:name=".activities.PlayerActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".activities.AiAnalysisActivity"
+            android:exported="false" />
+
         <service
             android:name=".service.RecordService"
             android:exported="false"

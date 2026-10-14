@@ -15,6 +15,9 @@ public interface RecordDao {
     @Query("SELECT * FROM records WHERE id = :id")
     RecordEntity getById(long id);
 
+    @Query("SELECT * FROM records WHERE id = :id")
+    LiveData<RecordEntity> observeById(long id);
+
     /*
      * =========================================================
      * INSERT

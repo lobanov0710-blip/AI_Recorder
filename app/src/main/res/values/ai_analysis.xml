@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_action_short">AI</string>
+    <string name="ai_screen_title">AI-анализ</string>
+    <string name="ai_start">Начать анализ</string>
+    <string name="ai_retry">Повторить анализ</string>
+    <string name="ai_cancel">Отменить обработку</string>
+    <string name="ai_status_loading">Загрузка</string>
+    <string name="ai_status_empty">Анализ ещё не запускался</string>
+    <string name="ai_status_pending">В очереди</string>
+    <string name="ai_status_running">Обработка записи</string>
+    <string name="ai_status_succeeded">Анализ готов</string>
+    <string name="ai_status_failed">Не удалось выполнить анализ</string>
+    <string name="ai_status_cancelled">Обработка отменена</string>
+    <string name="ai_status_missing">Запись не найдена</string>
+    <string name="ai_status_enqueuing">Добавляем в очередь</string>
+    <string name="ai_status_cancelling">Отменяем обработку</string>
+    <string name="ai_hint_loading">Проверяем сохранённый результат и состояние обработки.</string>
+    <string name="ai_hint_empty">Для распознавания и анализа требуется настроенный AI-сервис.</string>
+    <string name="ai_hint_pending">Обработка начнётся, когда приложение сможет её выполнить.</string>
+    <string name="ai_hint_retry_pending">Обработка временно прервана. Повторная попытка запустится автоматически.</string>
+    <string name="ai_hint_running">Можно закрыть этот экран. Обработка продолжится в фоне.</string>
+    <string name="ai_hint_succeeded">Результат сохранён.</string>
+    <string name="ai_hint_cancelled">Анализ можно запустить снова.</string>
+    <string name="ai_hint_missing">Запись удалена или недоступна. Вернитесь к списку записей.</string>
+    <string name="ai_error_not_configured">AI-сервис пока не настроен. Распознавание и анализ ещё недоступны.</string>
+    <string name="ai_error_recording">Не удалось открыть сохранённую аудиозапись.</string>
+    <string name="ai_error_network">Не удалось подключиться к AI-сервису. Проверьте интернет и повторите попытку.</string>
+    <string name="ai_error_retry_limit">Повторные попытки не помогли. Анализ можно запустить вручную.</string>
+    <string name="ai_error_interrupted">Предыдущая обработка прервалась. Запустите анализ снова.</string>
+    <string name="ai_error_queue">Не удалось изменить очередь обработки. Попробуйте ещё раз.</string>
+    <string name="ai_error_storage">Не удалось сохранить результат анализа. Попробуйте ещё раз.</string>
+    <string name="ai_error_processing">Не удалось обработать запись. Попробуйте ещё раз.</string>
+    <string name="ai_error_tasks">Не удалось прочитать сохранённый список задач.</string>
+    <string name="ai_previous_result">Показан ранее сохранённый результат.</string>
+    <string name="ai_suggested_title">Предложенное название</string>
+    <string name="ai_summary">Краткое содержание</string>
+    <string name="ai_tasks">Задачи</string>
+    <string name="ai_transcript">Расшифровка</string>
+    <string name="ai_no_title">Название не предложено.</string>
+    <string name="ai_no_summary">Краткое содержание отсутствует.</string>
+    <string name="ai_no_tasks">Задач нет.</string>
+    <string name="ai_no_transcript">Речь не распознана.</string>
+
+    <style name="AiAnalysisHeading">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/ai_primary_light</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:accessibilityHeading">true</item>
+    </style>
+    <style name="AiAnalysisBody">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/ai_text_primary</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textIsSelectable">true</item>
+        <item name="android:layout_marginBottom">24dp</item>
+    </style>
+</resources>

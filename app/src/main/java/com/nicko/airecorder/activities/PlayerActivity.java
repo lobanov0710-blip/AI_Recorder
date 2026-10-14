@@ -1,5 +1,6 @@
 package com.nicko.airecorder.activities;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -128,6 +129,13 @@ public class PlayerActivity
                                 "id",
                                 -1
                         );
+
+        binding.btnAiAnalysis.setEnabled(recordId > 0L);
+        binding.btnAiAnalysis.setOnClickListener(v -> {
+            Intent intent = new Intent(this, AiAnalysisActivity.class);
+            intent.putExtra(AiAnalysisActivity.EXTRA_RECORD_ID, recordId);
+            startActivity(intent);
+        });
 
         String title =
                 getIntent()
