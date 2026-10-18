@@ -130,9 +130,13 @@ public final class AiProcessingWorker extends Worker {
 
     @Override
     public void onStopped() {
-        long recordId = getInputData().getLong(KEY_RECORD_ID, -1L);
-        if (recordId > 0L) {
-            repository.onWorkerStopped(recordId, getId());
+        try {
+            processor.cancel();
+        } finally {
+            long recordId = getInputData().getLong(KEY_RECORD_ID, -1L);
+            if (recordId > 0L) {
+                repository.onWorkerStopped(recordId, getId());
+            }
         }
     }
 }

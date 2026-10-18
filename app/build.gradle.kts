@@ -34,6 +34,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     sourceSets {
@@ -43,7 +44,11 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "AI_SERVER_BASE_URL", "\"http://10.0.2.2:8000/\"")
+        }
         release {
+            buildConfigField("String", "AI_SERVER_BASE_URL", "\"\"")
             optimization {
                 enable = true
             }
@@ -60,6 +65,9 @@ android {
 }
 
 dependencies {
+    implementation(libs.okhttp)
+    implementation(libs.gson)
+    testImplementation(libs.mockwebserver)
 
     implementation(libs.appcompat)
 

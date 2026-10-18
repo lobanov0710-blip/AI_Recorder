@@ -22,7 +22,6 @@ import androidx.work.testing.WorkManagerTestInitHelper;
 
 import com.nicko.airecorder.ai.AiProcessingException;
 import com.nicko.airecorder.ai.AiProcessor;
-import com.nicko.airecorder.ai.AiProcessorFactory;
 import com.nicko.airecorder.ai.AiResult;
 import com.nicko.airecorder.database.AiAnalysisEntity;
 import com.nicko.airecorder.database.AiAnalysisStatus;
@@ -85,7 +84,8 @@ public class AiProcessingWorkerInstrumentedTest {
                 WorkManagerTestInitHelper.ExecutorsMode.PRESERVE_EXECUTORS);
         workManager = WorkManager.getInstance(context);
         repository = new AiRepository(database, workManager, directory);
-        processor = AiProcessorFactory.create();
+        // Tests must not depend on the configured debug server or send fixture audio.
+        processor = (id, file) -> { throw new AiProcessingException("AI_NOT_CONFIGURED", false); };
     }
 
     @After
@@ -118,6 +118,25 @@ public class AiProcessingWorkerInstrumentedTest {
             }
             assertTrue(directory.delete());
         }
+    }
+
+    @Test
+    public void stoppedWorker_cancelsItsProcessor() throws Exception {
+        long recordId = insertRecording();
+        AtomicInteger cancellations = new AtomicInteger();
+        processor = new AiProcessor() {
+            @Override
+            public AiResult process(long id, File file) {
+                return result(id);
+            }
+
+            @Override
+            public void cancel() {
+                cancellations.incrementAndGet();
+            }
+        };
+        worker(recordId, 0).onStopped();
+        assertEquals(1, cancellations.get());
     }
 
     @Test

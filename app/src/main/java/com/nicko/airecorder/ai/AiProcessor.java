@@ -27,4 +27,13 @@ public interface AiProcessor {
      */
     AiResult process(long recordId, File audioFile)
             throws IOException, InterruptedException;
+
+    /**
+     * Signals cancellation of this worker's processor, including an active network call.
+     * Implementations must be thread-safe and return promptly. Cancellation is sticky:
+     * a new worker obtains a new processor from the factory.
+     */
+    default void cancel() {
+        // Providers without cancellable resources may rely on thread interruption.
+    }
 }

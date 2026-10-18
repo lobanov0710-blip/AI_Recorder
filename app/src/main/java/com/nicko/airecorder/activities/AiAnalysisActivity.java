@@ -109,8 +109,25 @@ public final class AiAnalysisActivity extends AppCompatActivity {
             case "AI_NOT_CONFIGURED": return R.string.ai_error_not_configured;
             case "INVALID_RECORDING":
             case "INVALID_RECORD_ID":
-            case "RECORD_NOT_FOUND": return R.string.ai_error_recording;
-            case "NETWORK_UNAVAILABLE": return R.string.ai_error_network;
+            case "RECORD_NOT_FOUND":
+            case "UNSUPPORTED_FORMAT": return R.string.ai_error_recording;
+            case "NETWORK_UNAVAILABLE":
+            case "AI_UNAVAILABLE":
+            case "AI_SERVER_ERROR": return R.string.ai_error_network;
+            case "SERVER_BUSY": return R.string.ai_error_server_busy;
+            case "AI_TIMEOUT":
+            case "UPLOAD_TIMEOUT": return R.string.ai_error_timeout;
+            case "FILE_TOO_LARGE": return R.string.ai_error_file_too_large;
+            case "AUDIO_TOO_LONG":
+            case "TEXT_TOO_LONG": return R.string.ai_error_note_too_long;
+            case "NO_SPEECH": return R.string.ai_no_transcript;
+            case "AI_MODEL_UNAVAILABLE": return R.string.ai_error_model_unavailable;
+            case "AI_ENDPOINT_NOT_FOUND": return R.string.ai_error_endpoint;
+            case "AI_AUTH_REQUIRED": return R.string.ai_error_access;
+            case "INVALID_AI_RESPONSE":
+            case "INVALID_AI_RESULT":
+            case "AI_RESPONSE_INVALID":
+            case "AI_TASK_UNGROUNDED": return R.string.ai_error_response;
             case "RETRY_LIMIT_REACHED": return R.string.ai_error_retry_limit;
             case "ANALYSIS_INTERRUPTED": return R.string.ai_error_interrupted;
             case "QUEUE_FAILED": return R.string.ai_error_queue;

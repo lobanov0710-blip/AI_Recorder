@@ -16,7 +16,7 @@
     <string name="ai_status_enqueuing">Добавляем в очередь</string>
     <string name="ai_status_cancelling">Отменяем обработку</string>
     <string name="ai_hint_loading">Проверяем сохранённый результат и состояние обработки.</string>
-    <string name="ai_hint_empty">Для распознавания и анализа требуется настроенный AI-сервис.</string>
+    <string name="ai_hint_empty">Нажмите «Начать анализ», чтобы отправить запись на AI-сервер.</string>
     <string name="ai_hint_pending">Обработка начнётся, когда приложение сможет её выполнить.</string>
     <string name="ai_hint_retry_pending">Обработка временно прервана. Повторная попытка запустится автоматически.</string>
     <string name="ai_hint_running">Можно закрыть этот экран. Обработка продолжится в фоне.</string>
@@ -25,7 +25,15 @@
     <string name="ai_hint_missing">Запись удалена или недоступна. Вернитесь к списку записей.</string>
     <string name="ai_error_not_configured">AI-сервис пока не настроен. Распознавание и анализ ещё недоступны.</string>
     <string name="ai_error_recording">Не удалось открыть сохранённую аудиозапись.</string>
-    <string name="ai_error_network">Не удалось подключиться к AI-сервису. Проверьте интернет и повторите попытку.</string>
+    <string name="ai_error_network">AI-сервис недоступен. Проверьте подключение и работу сервера.</string>
+    <string name="ai_error_server_busy">Сервер занят обработкой другой записи. Попробуйте позже.</string>
+    <string name="ai_error_timeout">Сервер не успел ответить. Попробуйте позже или используйте более короткую запись.</string>
+    <string name="ai_error_file_too_large">Размер записи превышает ограничение сервера — 20 МБ.</string>
+    <string name="ai_error_note_too_long">Для пробного сервера используйте более короткую запись.</string>
+    <string name="ai_error_model_unavailable">Модель анализа недоступна на сервере.</string>
+    <string name="ai_error_endpoint">Сервис анализа недоступен по настроенному адресу.</string>
+    <string name="ai_error_access">Сервер отклонил доступ к анализу.</string>
+    <string name="ai_error_response">Не удалось проверить ответ AI-сервиса. Новый результат не сохранён.</string>
     <string name="ai_error_retry_limit">Повторные попытки не помогли. Анализ можно запустить вручную.</string>
     <string name="ai_error_interrupted">Предыдущая обработка прервалась. Запустите анализ снова.</string>
     <string name="ai_error_queue">Не удалось изменить очередь обработки. Попробуйте ещё раз.</string>
