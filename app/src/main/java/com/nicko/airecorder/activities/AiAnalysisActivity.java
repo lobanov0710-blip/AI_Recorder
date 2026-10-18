@@ -1,12 +1,14 @@
 package com.nicko.airecorder.activities;
 
 import android.os.Bundle;
+import android.security.NetworkSecurityPolicy;
 import android.view.View;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
 
+import com.nicko.airecorder.BuildConfig;
 import com.nicko.airecorder.R;
 import com.nicko.airecorder.databinding.ActivityAiAnalysisBinding;
 import com.nicko.airecorder.utils.SystemBarsManager;
@@ -15,6 +17,8 @@ import com.nicko.airecorder.viewmodel.AiViewModel;
 
 import org.json.JSONArray;
 import org.json.JSONException;
+
+import okhttp3.HttpUrl;
 
 public final class AiAnalysisActivity extends AppCompatActivity {
     public static final String EXTRA_RECORD_ID = "record_id";
@@ -38,7 +42,7 @@ public final class AiAnalysisActivity extends AppCompatActivity {
     private void render(AiScreenState state) {
         binding.txtRecordTitle.setText(orDefault(state.getRecordTitle(), R.string.player_default_title));
         binding.txtAnalysisStatus.setText(statusText(state));
-        binding.txtAnalysisHint.setText(hintText(state));
+        binding.txtAnalysisHint.setText(analysisHint(state));
         binding.analysisProgress.setVisibility(state.isBusy()
                 || state.getStatus() == AiScreenState.Status.LOADING ? View.VISIBLE : View.GONE);
         binding.btnStartAnalysis.setEnabled(state.canStart());
@@ -101,6 +105,29 @@ public final class AiAnalysisActivity extends AppCompatActivity {
         }
     }
 
+    private CharSequence analysisHint(AiScreenState state) {
+        String hint = getString(hintText(state));
+        String code = state.getErrorCode();
+        if (state.getStatus() == AiScreenState.Status.PENDING && code != null) {
+            hint = getString(R.string.ai_hint_retry_reason, getString(errorText(code)));
+        }
+        if (BuildConfig.DEBUG) {
+            try {
+                HttpUrl server = HttpUrl.get(BuildConfig.AI_SERVER_BASE_URL);
+                int transport = R.string.ai_debug_https;
+                if (!server.isHttps()) {
+                    transport = NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted(server.host())
+                            ? R.string.ai_debug_http_allowed : R.string.ai_debug_http_blocked;
+                }
+                hint += getString(R.string.ai_debug_connection, BuildConfig.AI_SERVER_BASE_URL,
+                        getString(transport), code == null ? "—" : code);
+            } catch (IllegalArgumentException invalidConfiguration) {
+                hint += "\n\n" + getString(R.string.ai_error_not_configured);
+            }
+        }
+        return hint;
+    }
+
     private int errorText(@Nullable String code) {
         if (code == null) {
             return R.string.ai_error_processing;
@@ -109,8 +136,28 @@ public final class AiAnalysisActivity extends AppCompatActivity {
             case "AI_NOT_CONFIGURED": return R.string.ai_error_not_configured;
             case "INVALID_RECORDING":
             case "INVALID_RECORD_ID":
-            case "RECORD_NOT_FOUND": return R.string.ai_error_recording;
-            case "NETWORK_UNAVAILABLE": return R.string.ai_error_network;
+            case "RECORD_NOT_FOUND":
+            case "UNSUPPORTED_FORMAT": return R.string.ai_error_recording;
+            case "NETWORK_UNAVAILABLE":
+            case "AI_UNAVAILABLE":
+            case "AI_SERVER_ERROR": return R.string.ai_error_network;
+            case "AI_HTTP_BLOCKED": return R.string.ai_error_http_blocked;
+            case "AI_CONNECTION_FAILED": return R.string.ai_error_connection;
+            case "WORK_INTERRUPTED": return R.string.ai_error_interrupted;
+            case "SERVER_BUSY": return R.string.ai_error_server_busy;
+            case "AI_TIMEOUT":
+            case "UPLOAD_TIMEOUT": return R.string.ai_error_timeout;
+            case "FILE_TOO_LARGE": return R.string.ai_error_file_too_large;
+            case "AUDIO_TOO_LONG":
+            case "TEXT_TOO_LONG": return R.string.ai_error_note_too_long;
+            case "NO_SPEECH": return R.string.ai_no_transcript;
+            case "AI_MODEL_UNAVAILABLE": return R.string.ai_error_model_unavailable;
+            case "AI_ENDPOINT_NOT_FOUND": return R.string.ai_error_endpoint;
+            case "AI_AUTH_REQUIRED": return R.string.ai_error_access;
+            case "INVALID_AI_RESPONSE":
+            case "INVALID_AI_RESULT":
+            case "AI_RESPONSE_INVALID":
+            case "AI_TASK_UNGROUNDED": return R.string.ai_error_response;
             case "RETRY_LIMIT_REACHED": return R.string.ai_error_retry_limit;
             case "ANALYSIS_INTERRUPTED": return R.string.ai_error_interrupted;
             case "QUEUE_FAILED": return R.string.ai_error_queue;

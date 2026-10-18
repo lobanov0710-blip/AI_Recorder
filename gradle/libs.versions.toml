@@ -4,6 +4,8 @@ room = "2.7.2"
 work = "2.11.2"
 agp = "9.3.2"
 splashscreen = "1.2.0"
+okhttp = "4.12.0"
+gson = "2.14.0"
 
 core = "1.18.0"
 
@@ -16,6 +18,9 @@ material = "1.14.0"
 
 
 [libraries]
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }

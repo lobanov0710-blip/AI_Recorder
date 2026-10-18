@@ -88,8 +88,8 @@ public final class AiProcessingWorker extends Worker {
             if (error.isRetryable() && getRunAttemptCount() + 1 < MAX_ATTEMPTS) {
                 return retry(recordId, error.getErrorCode());
             }
-            return fail(recordId, error.isRetryable()
-                    ? "RETRY_LIMIT_REACHED" : error.getErrorCode());
+            // FAILED ends automatic retries; retain the cause for the screen and support.
+            return fail(recordId, error.getErrorCode());
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             return retry(recordId, "WORK_INTERRUPTED");
@@ -103,7 +103,7 @@ public final class AiProcessingWorker extends Worker {
             return Result.retry();
         }
         if (getRunAttemptCount() + 1 >= MAX_ATTEMPTS) {
-            return fail(recordId, "RETRY_LIMIT_REACHED");
+            return fail(recordId, errorCode);
         }
         try {
             return repository.setActiveState(recordId, getId(), AiAnalysisStatus.PENDING, errorCode)
@@ -130,9 +130,13 @@ public final class AiProcessingWorker extends Worker {
 
     @Override
     public void onStopped() {
-        long recordId = getInputData().getLong(KEY_RECORD_ID, -1L);
-        if (recordId > 0L) {
-            repository.onWorkerStopped(recordId, getId());
+        try {
+            processor.cancel();
+        } finally {
+            long recordId = getInputData().getLong(KEY_RECORD_ID, -1L);
+            if (recordId > 0L) {
+                repository.onWorkerStopped(recordId, getId());
+            }
         }
     }
 }

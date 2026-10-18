@@ -11,9 +11,9 @@ import java.io.File;
 
 public class AiQueueContractTest {
     @Test
-    public void defaultProcessor_failsExplicitlyInsteadOfReturningFakeText() {
+    public void unconfiguredProcessor_failsExplicitlyInsteadOfReturningFakeText() {
         AiProcessingException error = assertThrows(AiProcessingException.class,
-                () -> AiProcessorFactory.create().process(17L, new File("record_1000.m4a")));
+                () -> AiProcessorFactory.create("").process(17L, new File("record_1000.m4a")));
         assertEquals("AI_NOT_CONFIGURED", error.getErrorCode());
         assertFalse(error.isRetryable());
     }
