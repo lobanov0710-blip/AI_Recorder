@@ -16,14 +16,17 @@ import org.junit.rules.TemporaryFolder;
 import java.io.File;
 import java.io.RandomAccessFile;
 import java.net.ConnectException;
+import java.net.UnknownServiceException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Collections;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.ConnectionSpec;
 import okhttp3.OkHttpClient;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -226,7 +229,32 @@ public class RemoteAiProcessorTest {
     public void failedConnection_isRetryable() throws Exception {
         processor = new RemoteAiProcessor(server.url("/v1/analyze"), new OkHttpClient.Builder()
                 .addInterceptor(chain -> { throw new ConnectException("private connection text"); }).build());
-        assertError("NETWORK_UNAVAILABLE", true);
+        assertError("AI_CONNECTION_FAILED", true);
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    public void cleartextRejection_isPermanentAndDoesNotExposeExceptionText() {
+        processor = new RemoteAiProcessor(server.url("/v1/analyze"), new OkHttpClient.Builder()
+                .connectionSpecs(Collections.singletonList(ConnectionSpec.MODERN_TLS)).build());
+        assertError("AI_HTTP_BLOCKED", false);
+        processor = new RemoteAiProcessor(server.url("/v1/analyze"), new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    throw new UnknownServiceException("CLEARTEXT communication to private-host "
+                            + "not permitted by network security policy");
+                }).build());
+        AiProcessingException error = assertError("AI_HTTP_BLOCKED", false);
+        assertFalse(error.getMessage().contains("private-host"));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    public void unrelatedUnknownServiceError_isNotReportedAsCleartextPolicy() {
+        processor = new RemoteAiProcessor(server.url("/v1/analyze"), new OkHttpClient.Builder()
+                .addInterceptor(chain -> { throw new UnknownServiceException("other private error"); }).build());
+        AiProcessingException error = assertError("NETWORK_UNAVAILABLE", true);
+        assertFalse(error.getMessage().contains("private"));
+        assertEquals(0, server.getRequestCount());
     }
 
     @Test

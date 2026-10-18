@@ -174,12 +174,16 @@ public class AiProcessingWorkerInstrumentedTest {
     }
 
     @Test
-    public void thirdTransientFailure_reachesRetryLimit() throws Exception {
-        long recordId = insertRecording();
-        processor = (id, file) -> { throw new AiProcessingException("NETWORK_UNAVAILABLE", true); };
-        assertEquals(failure("RETRY_LIMIT_REACHED"), worker(recordId, 2).doWork());
-        assertEquals(AiAnalysisStatus.FAILED,
-                database.aiAnalysisDao().getByRecordId(recordId).getStatus());
+    public void thirdTransientFailure_stopsRetryingAndPreservesTheCause() throws Exception {
+        for (String code : new String[]{"NETWORK_UNAVAILABLE", "AI_CONNECTION_FAILED",
+                "SERVER_BUSY", "AI_TIMEOUT", "AI_SERVER_ERROR"}) {
+            long recordId = insertRecording();
+            processor = (id, file) -> { throw new AiProcessingException(code, true); };
+            assertEquals(failure(code), worker(recordId, 2).doWork());
+            AiAnalysisEntity stored = database.aiAnalysisDao().getByRecordId(recordId);
+            assertEquals(AiAnalysisStatus.FAILED, stored.getStatus());
+            assertEquals(code, stored.getErrorCode());
+        }
     }
 
     @Test

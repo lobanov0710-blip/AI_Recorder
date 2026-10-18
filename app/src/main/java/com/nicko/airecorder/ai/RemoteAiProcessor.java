@@ -5,7 +5,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
+import java.net.ConnectException;
 import java.net.Proxy;
+import java.net.UnknownServiceException;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -149,6 +151,14 @@ public final class RemoteAiProcessor implements AiProcessor {
             }
             if (!audioFile.isFile() || !audioFile.canRead()) {
                 throw new AiProcessingException("INVALID_RECORDING", false);
+            }
+            if (error instanceof UnknownServiceException && error.getMessage() != null
+                    && error.getMessage().startsWith("CLEARTEXT communication")) {
+                // OkHttp rejects this configuration before an HTTP request is sent.
+                throw new AiProcessingException("AI_HTTP_BLOCKED", false);
+            }
+            if (error instanceof ConnectException) {
+                throw new AiProcessingException("AI_CONNECTION_FAILED", true);
             }
             throw new AiProcessingException("NETWORK_UNAVAILABLE", true);
         } finally {

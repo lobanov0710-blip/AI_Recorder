@@ -4,12 +4,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import android.content.Intent;
 import android.os.Build;
 import android.security.NetworkSecurityPolicy;
+import android.widget.TextView;
 
+import androidx.test.core.app.ActivityScenario;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.nicko.airecorder.BuildConfig;
+import com.nicko.airecorder.R;
+import com.nicko.airecorder.activities.AiAnalysisActivity;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -44,5 +50,22 @@ public class AiServerConfigurationInstrumentedTest {
         assertEquals("Loopback policy must match the Android platform default",
                 Build.VERSION.SDK_INT >= 37,
                 policy.isCleartextTrafficPermitted("127.0.0.1"));
+    }
+
+    @Test
+    public void debugScreen_showsThePackagedServerAndActualHttpPolicy() {
+        Intent intent = new Intent(ApplicationProvider.getApplicationContext(), AiAnalysisActivity.class);
+        // No record ID: this only opens the screen and never uploads audio.
+        try (ActivityScenario<AiAnalysisActivity> scenario = ActivityScenario.launch(intent)) {
+            scenario.onActivity(activity -> {
+                TextView hint = activity.findViewById(R.id.txtAnalysisHint);
+                String text = hint.getText().toString();
+                String host = HttpUrl.get(BuildConfig.AI_SERVER_BASE_URL).host();
+                int policyText = NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted(host)
+                        ? R.string.ai_debug_http_allowed : R.string.ai_debug_http_blocked;
+                assertTrue(text.contains(BuildConfig.AI_SERVER_BASE_URL));
+                assertTrue(text.contains(activity.getString(policyText)));
+            });
+        }
     }
 }

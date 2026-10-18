@@ -19,6 +19,7 @@
     <string name="ai_hint_empty">Нажмите «Начать анализ», чтобы отправить запись на AI-сервер.</string>
     <string name="ai_hint_pending">Обработка начнётся, когда приложение сможет её выполнить.</string>
     <string name="ai_hint_retry_pending">Обработка временно прервана. Повторная попытка запустится автоматически.</string>
+    <string name="ai_hint_retry_reason">Обработка временно прервана. %1$s Повторная попытка запустится автоматически.</string>
     <string name="ai_hint_running">Можно закрыть этот экран. Обработка продолжится в фоне.</string>
     <string name="ai_hint_succeeded">Результат сохранён.</string>
     <string name="ai_hint_cancelled">Анализ можно запустить снова.</string>
@@ -26,6 +27,8 @@
     <string name="ai_error_not_configured">AI-сервис пока не настроен. Распознавание и анализ ещё недоступны.</string>
     <string name="ai_error_recording">Не удалось открыть сохранённую аудиозапись.</string>
     <string name="ai_error_network">AI-сервис недоступен. Проверьте подключение и работу сервера.</string>
+    <string name="ai_error_http_blocked">HTTP-соединение запрещено настройками приложения. Нужна сборка с разрешением для адреса сервера.</string>
+    <string name="ai_error_connection">Не удалось установить соединение с AI-сервером. Проверьте адрес и доступ к серверу.</string>
     <string name="ai_error_server_busy">Сервер занят обработкой другой записи. Попробуйте позже.</string>
     <string name="ai_error_timeout">Сервер не успел ответить. Попробуйте позже или используйте более короткую запись.</string>
     <string name="ai_error_file_too_large">Размер записи превышает ограничение сервера — 20 МБ.</string>
@@ -40,6 +43,10 @@
     <string name="ai_error_storage">Не удалось сохранить результат анализа. Попробуйте ещё раз.</string>
     <string name="ai_error_processing">Не удалось обработать запись. Попробуйте ещё раз.</string>
     <string name="ai_error_tasks">Не удалось прочитать сохранённый список задач.</string>
+    <string name="ai_debug_connection">\n\nСервер: %1$s\n%2$s\nКод: %3$s</string>
+    <string name="ai_debug_http_allowed">HTTP для этого адреса разрешён.</string>
+    <string name="ai_debug_http_blocked">HTTP для этого адреса запрещён.</string>
+    <string name="ai_debug_https">Соединение HTTPS.</string>
     <string name="ai_previous_result">Показан ранее сохранённый результат.</string>
     <string name="ai_suggested_title">Предложенное название</string>
     <string name="ai_summary">Краткое содержание</string>
