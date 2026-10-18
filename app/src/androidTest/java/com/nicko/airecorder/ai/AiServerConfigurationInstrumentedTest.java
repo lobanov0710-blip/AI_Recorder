@@ -14,20 +14,29 @@ import com.nicko.airecorder.BuildConfig;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import okhttp3.HttpUrl;
+
 /** Checks actual debug variant configuration without contacting an AI server. */
 @RunWith(AndroidJUnit4.class)
 public class AiServerConfigurationInstrumentedTest {
     @Test
     public void debugFactory_selectsTheConfiguredRemoteProvider() {
         assertTrue(BuildConfig.DEBUG);
-        assertEquals("http://10.0.2.2:8000/", BuildConfig.AI_SERVER_BASE_URL);
+        HttpUrl base = HttpUrl.get(BuildConfig.AI_SERVER_BASE_URL);
+        assertEquals("http", base.scheme());
+        assertEquals(8000, base.port());
+        assertEquals(!base.host().equals("10.0.2.2"), BuildConfig.AI_ALLOW_LAN_HTTP);
         assertTrue(AiProcessorFactory.create() instanceof RemoteAiProcessor);
     }
 
     @Test
     public void cleartextHttp_respectsDebugHostAndPlatformLoopback() {
         NetworkSecurityPolicy policy = NetworkSecurityPolicy.getInstance();
-        assertTrue(policy.isCleartextTrafficPermitted("10.0.2.2"));
+        String serverHost = HttpUrl.get(BuildConfig.AI_SERVER_BASE_URL).host();
+        assertTrue(policy.isCleartextTrafficPermitted(serverHost));
+        if (!serverHost.equals("10.0.2.2")) {
+            assertFalse(policy.isCleartextTrafficPermitted("10.0.2.2"));
+        }
         assertFalse(policy.isCleartextTrafficPermitted("example.com"));
         assertFalse(policy.isCleartextTrafficPermitted("192.0.2.1"));
         // Android 17+ supplies an implicit localhost config when none is declared.

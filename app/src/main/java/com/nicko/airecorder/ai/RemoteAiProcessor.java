@@ -45,7 +45,11 @@ public final class RemoteAiProcessor implements AiProcessor {
     private final AtomicReference<Call> activeCall = new AtomicReference<>();
 
     public RemoteAiProcessor(String baseUrl) {
-        this(endpoint(baseUrl), CLIENT);
+        this(baseUrl, false);
+    }
+
+    public RemoteAiProcessor(String baseUrl, boolean allowLanHttp) {
+        this(endpoint(baseUrl, allowLanHttp), CLIENT);
     }
 
     // Package-private transport injection for tests; production always uses CLIENT.
@@ -56,17 +60,37 @@ public final class RemoteAiProcessor implements AiProcessor {
                 .followSslRedirects(false).proxy(Proxy.NO_PROXY).build();
     }
 
-    private static HttpUrl endpoint(String baseUrl) {
+    private static HttpUrl endpoint(String baseUrl, boolean allowLanHttp) {
         HttpUrl base = HttpUrl.get(baseUrl);
         if (!base.username().isEmpty() || !base.password().isEmpty()
                 || base.query() != null || base.fragment() != null || !base.encodedPath().equals("/")) {
             throw new IllegalArgumentException("An origin URL without credentials is required");
         }
         if (!base.isHttps() && !(base.host().equals("10.0.2.2")
-                || base.host().equals("127.0.0.1") || base.host().equals("localhost"))) {
+                || base.host().equals("127.0.0.1") || base.host().equals("localhost")
+                || (allowLanHttp && isPrivateIpv4(base.host())))) {
             throw new IllegalArgumentException("HTTP is limited to local development");
         }
         return base.newBuilder().addPathSegments("v1/analyze").build();
+    }
+
+    private static boolean isPrivateIpv4(String host) {
+        String[] parts = host.split("\\.", -1);
+        if (parts.length != 4) {
+            return false;
+        }
+        int[] octets = new int[4];
+        for (int i = 0; i < parts.length; i++) {
+            if (!parts[i].matches("0|[1-9][0-9]{0,2}")) {
+                return false;
+            }
+            octets[i] = Integer.parseInt(parts[i]);
+            if (octets[i] > 255) {
+                return false;
+            }
+        }
+        return octets[0] == 10 || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
+                || (octets[0] == 192 && octets[1] == 168);
     }
 
     @Override

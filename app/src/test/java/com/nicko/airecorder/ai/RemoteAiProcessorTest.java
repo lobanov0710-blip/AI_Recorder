@@ -261,6 +261,30 @@ public class RemoteAiProcessorTest {
     }
 
     @Test
+    public void lanHttp_requiresOptInAndAcceptsOnlyPrivateIpv4() {
+        for (String host : new String[]{"10.0.0.1", "10.255.255.254", "172.16.0.1",
+                "172.31.255.254", "192.168.1.50"}) {
+            String url = "http://" + host + ":8000/";
+            assertThrows(IllegalArgumentException.class, () -> new RemoteAiProcessor(url));
+            assertNotNull(new RemoteAiProcessor(url, true));
+        }
+        for (String host : new String[]{"example.com", "8.8.8.8", "172.15.0.1", "172.32.0.1",
+                "192.169.1.1", "192.168.1.50.example.com", "[fd00::1]"}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new RemoteAiProcessor("http://" + host + ":8000/", true));
+        }
+    }
+
+    @Test
+    public void factoryLanMode_isExplicitAndDoesNotSendAnythingDuringConfiguration() throws Exception {
+        assertTrue(AiProcessorFactory.create("http://192.168.1.50:8000/", true) instanceof RemoteAiProcessor);
+        AiProcessingException error = assertThrows(AiProcessingException.class,
+                () -> AiProcessorFactory.create("http://192.168.1.50:8000/", false).process(17L, audio));
+        assertEquals("AI_NOT_CONFIGURED", error.getErrorCode());
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
     public void configuredFactoryCreatesRemoteProvider_andBadConfigurationFailsSafely() throws Exception {
         assertTrue(AiProcessorFactory.create(server.url("/").toString()) instanceof RemoteAiProcessor);
         for (String url : new String[]{"", "not a URL", "http://example.com/", "https://user:secret@example.com/",

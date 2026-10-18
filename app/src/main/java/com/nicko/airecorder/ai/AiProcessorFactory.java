@@ -8,13 +8,17 @@ public final class AiProcessorFactory {
     }
 
     public static AiProcessor create() {
-        return create(BuildConfig.AI_SERVER_BASE_URL);
+        return create(BuildConfig.AI_SERVER_BASE_URL, BuildConfig.DEBUG && BuildConfig.AI_ALLOW_LAN_HTTP);
     }
 
     static AiProcessor create(String baseUrl) {
+        return create(baseUrl, false);
+    }
+
+    static AiProcessor create(String baseUrl, boolean allowLanHttp) {
         if (baseUrl != null && !baseUrl.trim().isEmpty()) {
             try {
-                return new RemoteAiProcessor(baseUrl);
+                return new RemoteAiProcessor(baseUrl, allowLanHttp);
             } catch (IllegalArgumentException invalidConfiguration) {
                 // Fail inside process(), where the worker can persist a safe error code.
             }

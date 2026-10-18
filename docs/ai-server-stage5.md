@@ -1,7 +1,8 @@
 # Этап 5: подключение локального AI-сервера
 
-Debug-сборка отправляет сохранённую M4A-запись в `POST http://10.0.2.2:8000/v1/analyze`.
-Для этого этапа Android Emulator и сервер должны работать на одном ПК.
+По умолчанию debug-сборка отправляет M4A в `POST http://10.0.2.2:8000/v1/analyze`.
+Эмулятор и сервер в этом режиме работают на одном ПК. Для телефона по Wi-Fi
+адрес ПК задаётся параметром сборки `-PaiServerHost=IPv4`; инструкция ниже.
 Адрес `10.0.2.2` в эмуляторе соответствует localhost компьютера.
 FastAPI остаётся привязан к `127.0.0.1:8000`, Ollama — к `127.0.0.1:11434`.
 
@@ -33,17 +34,26 @@ Multipart-поля: положительный `record_id` и `file` с типо
 
 ## Конфигурация сборок
 
-`AI_SERVER_BASE_URL` задаётся в `app/build.gradle.kts`: debug — `http://10.0.2.2:8000/`,
-release — пустая строка. Пустая или неверная конфигурация возвращает `AI_NOT_CONFIGURED`.
-Debug-конфигурация явно разрешает HTTP для `10.0.2.2`; для внешних доменов и других
+`AI_SERVER_BASE_URL` задаётся в `app/build.gradle.kts`: debug по умолчанию —
+`http://10.0.2.2:8000/`, с `-PaiServerHost=IPv4` — `http://IPv4:8000/`, release — пустая
+строка. Параметр принимает только частный IPv4 из 10/8, 172.16/12 или 192.168/16,
+без схемы, порта или пути. Пустая или неверная конфигурация фабрики возвращает
+`AI_NOT_CONFIGURED`. Некорректный параметр сборки останавливает конфигурацию Gradle.
+Для Wi-Fi `AI_ALLOW_LAN_HTTP` включается только в debug; release всегда получает false.
+HTTP к частному LAN-адресу требует этого отдельного флага в фабрике и процессоре.
+
+Debug-конфигурация явно разрешает HTTP для выбранного адреса сервера; для внешних доменов и других
 не-loopback IP-адресов сохраняется запрет HTTP. Начиная с Android 17 (API 37), ОС также
 неявно разрешает HTTP для localhost и loopback-адресов, включая `127.0.0.1`, если для
 них не задано отдельное правило. Приложение не переопределяет это системное исключение.
 Инструментальный тест учитывает его по версии Android и проверяет, что внешние адреса
 остаются запрещены. См. раздел Localhost configuration в
 [документации Android](https://developer.android.com/privacy-and-security/security-config).
-В release локальный сервер не включён. Доступ с физического телефона, HTTPS и
-аутентификация требуют отдельной настройки; этот этап проверяет соединение в эмуляторе.
+Для Wi-Fi задача `GenerateAiDebugNetworkConfig` создаёт XML под каталогом сборки;
+AGP добавляет его как generated resource с приоритетом над настройкой эмулятора.
+Поэтому IPv4 не записывается в исходники, а разрешение HTTP относится к одному
+выбранному адресу. В release локальный сервер не включён. HTTPS и аутентификация
+пока не настроены; Wi-Fi-режим предназначен для проверки в своей локальной сети.
 
 Добавлены OkHttp 4.12.0, Gson 2.14.0 (потоковый разбор без отражения) и test-only
 MockWebServer 4.12.0. Для release будущий адрес должен использовать HTTPS;
@@ -87,3 +97,59 @@ MockWebServer 4.12.0. Для release будущий адрес должен ис
 
 Успех тестов HTTP-клиента не подтверждает реальный запуск Android → Whisper → Qwen:
 последний пункт нужно выполнить на ПК с установленными моделями.
+
+## Физический телефон по Wi-Fi
+
+Телефон и ПК должны быть в одной домашней локальной сети. ПК может быть подключён
+к роутеру кабелем. Для следующих команд нужен фактический IPv4 ПК; адрес
+`192.168.1.50` ниже — только пример, его нельзя использовать вместо своего адреса.
+
+1. Узнайте адрес и сетевой профиль в обычном PowerShell:
+
+   ```powershell
+   Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object InterfaceAlias, IPv4Address, IPv4DefaultGateway
+   Get-NetConnectionProfile | Select-Object InterfaceAlias, NetworkCategory
+   ```
+
+2. В папке сервера остановите прежний Uvicorn и запустите его на IPv4 ПК:
+
+   ```powershell
+   $aiServerIp = '192.168.1.50' # Заменить своим IPv4.
+   .\.venv\Scripts\python.exe -m uvicorn main:app --host $aiServerIp --port 8000 --workers 1
+   ```
+
+   Ollama продолжает работать на `127.0.0.1:11434`; телефон обращается только к FastAPI.
+
+3. Для частного сетевого профиля разрешите входящий TCP 8000 из локальной подсети.
+   Эту команду запускают один раз в PowerShell от администратора:
+
+   ```powershell
+   $aiServerIp = '192.168.1.50' # Заменить своим IPv4.
+   New-NetFirewallRule -Name 'AIRecorder-LAN-8000' -DisplayName 'AI Recorder LAN 8000' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000 -LocalAddress $aiServerIp -RemoteAddress LocalSubnet -Profile Private
+   ```
+
+   Правило относится к профилю Private. Если домашний адаптер имеет профиль Public,
+   сначала измените категорию именно своей домашней сети в настройках Windows.
+   Удаление тестового правила: `Remove-NetFirewallRule -Name 'AIRecorder-LAN-8000'`.
+
+4. Откройте на телефоне `http://IPv4-ПК:8000/health`. Ожидается `{"status":"ok"}`.
+
+5. В корне Android-репозитория соберите debug APK с адресом ПК:
+
+   ```powershell
+   $aiServerIp = '192.168.1.50' # Заменить своим IPv4.
+   .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug "-PaiServerHost=$aiServerIp"
+   ```
+
+   APK: `app\build\outputs\apk\debug\app-debug.apk`. Установите его на телефон,
+   запишите короткую фразу и откройте запись → AI → «Начать анализ».
+
+6. Проверка инструментальных тестов с этой конфигурацией, если телефон подключён
+   к Android Studio или выбран эмулятор:
+
+   ```powershell
+   .\gradlew.bat :app:connectedDebugAndroidTest "-PaiServerHost=$aiServerIp"
+   ```
+
+   Без параметра `aiServerHost` следующая сборка снова использует конфигурацию эмулятора.
+   При смене IPv4 ПК Wi-Fi APK требуется пересобрать с новым адресом.
