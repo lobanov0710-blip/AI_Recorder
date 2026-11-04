@@ -58,3 +58,10 @@ python -m pytest -q tests/test_lan_auth.py tests/test_device_registry.py tests/t
 
 Отдельный шаг Android CI генерирует на runner временную public CA и ключ (ключ немедленно удаляется после сборки) и компилирует debug APK с `-PaiServerScheme=https`, `-PaiServerPort=18443`, `-PaiDebugCaPemFile`. Это проверка build-time ресурса, **не TLS handshake с телефона**.
 
+## Подтверждённые результаты CI (2026-11-05)
+
+- **Windows + Linux TLS E2E:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41921772450 — по `22 passed` на каждой системе.
+- **Android debug HTTPS сборка с transient public CA:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41922018616 — `success`; аналогичный дополнительный запуск https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41922336129 — `success`.
+- **Android Keystore instrumented на API 35 эмуляторе:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41922336147 — `7 tests`, `BUILD SUCCESSFUL`, `completed/success`.
+- Это не физический телефон и не настоящий LAN TLS, и не означает, что пользователю выдан токен или рабочий FastAPI стал авторизованным.
+
