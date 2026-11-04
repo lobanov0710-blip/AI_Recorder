@@ -1,7 +1,10 @@
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 
@@ -13,24 +16,56 @@ abstract class GenerateAiDebugNetworkConfig : DefaultTask() {
     @get:Input
     abstract val serverHost: Property<String>
 
+    @get:Input
+    abstract val httpsMode: Property<Boolean>
+
+    @get:InputFile
+    @get:Optional
+    abstract val customCaFile: RegularFileProperty
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun generate() {
+        val host = serverHost.get()
+        val https = httpsMode.get()
+        val caFile = if (https && customCaFile.isPresent) customCaFile.get().asFile else null
+        val customTrust = if (caFile != null) """
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/ai_stage47_debug_ca" />
+        </trust-anchors>""" else ""
         val xml = outputDirectory.file("xml/ai_debug_network_security.xml").get().asFile
         xml.parentFile.mkdirs()
-        xml.writeText(
-            """<?xml version="1.0" encoding="utf-8"?>
+        val content = if (https) """<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">$host</domain>$customTrust
+    </domain-config>
+</network-security-config>
+""" else """<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">${serverHost.get()}</domain>
+        <domain includeSubdomains="false">$host</domain>
     </domain-config>
 </network-security-config>
-""",
-            Charsets.UTF_8
-        )
+"""
+        xml.writeText(content, Charsets.UTF_8)
+        if (caFile != null) {
+            val caPem = caFile.readText(Charsets.US_ASCII).trim()
+            require(caPem.startsWith("-----BEGIN CERTIFICATE-----") &&
+                    caPem.endsWith("-----END CERTIFICATE-----") &&
+                    !caPem.contains("PRIVATE KEY") &&
+                    caPem.length in 256..16384) {
+                "aiDebugCaPemFile must contain only PEM certificates, never a private key"
+            }
+            val caResource = outputDirectory.file("raw/ai_stage47_debug_ca.pem").get().asFile
+            caResource.parentFile.mkdirs()
+            caResource.writeText(caPem + "\n", Charsets.US_ASCII)
+        }
     }
 }
 
@@ -46,6 +81,21 @@ require(aiHostOctets.size == 4 && (aiHostOctets[0] == 10 ||
         (aiHostOctets[0] == 172 && aiHostOctets[1] in 16..31) ||
         (aiHostOctets[0] == 192 && aiHostOctets[1] == 168))) {
     "aiServerHost must belong to 10/8, 172.16/12 or 192.168/16"
+}
+// HTTPS is an explicit debug-only opt-in; existing emulator/LAN HTTP builds are unchanged.
+val aiDebugScheme = providers.gradleProperty("aiServerScheme").orElse("http").get()
+require(aiDebugScheme == "http" || aiDebugScheme == "https") {
+    "aiServerScheme must be http or https"
+}
+val aiDebugPortString = providers.gradleProperty("aiServerPort")
+    .orElse(if (aiDebugScheme == "https") "18443" else "8000").get()
+val aiDebugPort = aiDebugPortString.toIntOrNull()
+require(aiDebugPort != null && aiDebugPort in 1..65535) {
+    "aiServerPort must be 1..65535"
+}
+val aiCustomCaPath = providers.gradleProperty("aiDebugCaPemFile").orNull
+require(aiCustomCaPath == null || aiDebugScheme == "https") {
+    "Custom debug CA is allowed only in HTTPS mode"
 }
 val aiLanDebug = aiDebugServerHost != "10.0.2.2"
 
@@ -92,7 +142,7 @@ android {
 
     buildTypes {
         getByName("debug") {
-            buildConfigField("String", "AI_SERVER_BASE_URL", "\"http://$aiDebugServerHost:8000/\"")
+            buildConfigField("String", "AI_SERVER_BASE_URL", "\"$aiDebugScheme://$aiDebugServerHost:$aiDebugPort/\"")
             buildConfigField("boolean", "AI_ALLOW_LAN_HTTP", aiLanDebug.toString())
         }
         release {
@@ -113,12 +163,23 @@ android {
     }
 }
 
-if (aiLanDebug) {
+if (aiLanDebug || aiDebugScheme == "https") {
     androidComponents.onVariants(androidComponents.selector().withBuildType("debug")) { variant ->
         val configTask = tasks.register<GenerateAiDebugNetworkConfig>(
             "generate${variant.name.replaceFirstChar { it.uppercase() }}AiNetworkConfig"
         ) {
             serverHost.set(aiDebugServerHost)
+            httpsMode.set(aiDebugScheme == "https")
+            if (aiCustomCaPath != null) {
+                val ca = file(aiCustomCaPath)
+                require(ca.isFile && ca.canonicalFile.parentFile != null) {
+                    "aiDebugCaPemFile must refer to an existing public CA PEM file"
+                }
+                require(!ca.canonicalFile.toPath().startsWith(rootProject.rootDir.canonicalFile.toPath())) {
+                    "Debug CA PEM must be kept outside the Git repository"
+                }
+                customCaFile.set(ca)
+            }
         }
         variant.sources.res?.addGeneratedSourceDirectory(
             configTask, GenerateAiDebugNetworkConfig::outputDirectory
