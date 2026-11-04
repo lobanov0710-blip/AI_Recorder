@@ -1,0 +1,10 @@
+# Never commit provisioned device registries or private key material.
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.pem
+*.key
+*.p12
