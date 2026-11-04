@@ -1,0 +1,67 @@
+# Этап 47 — изолированный HTTPS + авторизация устройства
+
+**Статус:** независимый тестовый контур. Не задействует рабочие сервисы Windows/Android и не активирует облачную модель Gemini.
+
+## Что создано
+- `backend_security/stage47_loopback_app.py`: тестовый FastAPI, запускающийся только при `AI_STAGE47_TEST_ONLY=1`. Использует существующие `LanAuthGuard` и `DeviceRegistry`; не умеет распознавать аудио, не имеет доступа к реальным записям и возвращает синтетические ответы. Без необходимой переменной окружения импорт завершается ошибкой.
+- `tests/test_stage47_tls_e2e.py`: автоматические *настоящие* TLS/HTTP тесты через `httpx.Client(verify=<test_ca.pem>)` и `uvicorn` на случайном порту `127.0.0.1`. Временный CA и серверный сертификат генерируются при тестировании и никогда не коммитятся.
+- CI `.github/workflows/ai-lan-auth-tests.yml` дополнен проверкой этого сценария на `ubuntu-latest` и `windows-latest`.
+
+## Проверяемые свойства
+
+1. HTTPS `/health` доступен, сертификат подписан доверенным *временным* CA и совпадает с именем `localhost`.
+2. Без токена, с неверным или отозванным индивидуальным токеном `POST /v1/analyze` отвечает `401`.
+3. Правильный токен первого и второго устройств независимо разрешает HTTPS `POST /v1/analyze` и `/v1/transcribe`.
+4. Отзыв токена в SQLite запрещает доступ *без перезапуска серверного процесса*, второй токен остаётся действительным.
+5. Подключение к `https://127.0.0.1` при сертификате, выданном только для `localhost`, отклоняется проверкой имени хоста; подключение без доверенного CA тоже отклоняется.
+6. По HTTP даже с валидным токеном и поддельным `X-Forwarded-Proto: https` запрос отклоняется `403 AI_TLS_REQUIRED`.
+7. Тестовый Uvicorn запускается **без** `--proxy-headers`, только на loopback и завершается через `terminate()/kill()` **только для порождённого тестом процесса**. Никакого удаления рабочих логов или остановки других экземпляров.
+
+## Ограничения и разрыв до эксплуатации
+
+- Это контрактный HTTPS-тест **синтетического приложения**, не реального локального `main.py`. Прямой Gemini/M4A E2E уже проверен ранее; эти проверки не дублируются.
+- Устройство Android пока не получает токен и не хранит доверенный CA; SSL-подключение с телефона не проведено. В `RemoteAiProcessor` Stage46 существует opt-in HTTPS заголовок, но `AiProcessorFactory` не переключён.
+- Тестовый CA **не годится** для реальной локальной сети или постоянного Android-приложения: он временный и содержит SAN только `localhost`. Чтобы обслуживать телефон, потребуется сертификат с DNS/SAN хоста, которым пользуется телефон (например, локальное DNS-имя или актуальный IP), и доверенная цепочка в debug-only Android network security configuration.
+- Если использовать reverse proxy, приложению нельзя доверять `X-Forwarded-Proto` от непроверенных клиентов, а backend за proxy должен быть доступен только с loopback. В этом тесте TLS завершается непосредственно в Uvicorn.
+- Не выставлять тестовый HTTPS сервис на интерфейсы LAN и тем более в Интернет. Не вносить токены/секреты в Git, Gradle, APK или логи.
+- Выдача и отзыв **реального** идентификатора устройства с доверенной локальной административной панели и сборка Android HTTPS с сертификатом **не реализованы**. Нельзя считать устройство уже спаренным.
+- **Провайдер по умолчанию Qwen3/LM Studio; Gemini включается только явно.** Авторизация телефона не означает согласия на облачную обработку текста.
+
+## Команды для CI
+```bash
+python -m pip install fastapi==0.128.2 httpx==0.28.1 pytest==9.0.2 "uvicorn>=0.34,<1" "cryptography>=44,<48"
+python -m pytest -q tests/test_lan_auth.py tests/test_device_registry.py tests/test_stage47_tls_e2e.py
+```
+
+**Следующая реализация:** debug-only Android trust сертификата, отдельный тестовый HTTPS endpoint с доступом с телефона, безопасное спаривание без встроенного токена, запуск Android Keystore instrumentation, затем HTTPS E2E Android → FastAPI без включения Gemini.
+
+Документация:
+- https://developer.android.com/privacy-and-security/security-config
+- https://uvicorn.dev/settings/
+
+
+## Подготовлена опция HTTPS в Android debug (не включена)
+
+В `app/build.gradle.kts` добавлена **только opt-in debug-сборка** с параметрами:
+```powershell
+.\gradlew.bat :app:assembleDebug "-PaiServerScheme=https" "-PaiServerHost=192.168.1.101" "-PaiServerPort=18443" "-PaiDebugCaPemFile=C:\\path-outside-repository\\trusted-public-ca.pem"
+```
+*Это пример будущей команды, не инструкция запускать её сейчас: на реальном `192.168.1.101:18443` пока нет подтверждённого HTTPS-сервера и CA. Реальные TLS имена и адреса нужно согласовать с сертификатом.*
+
+- По умолчанию без параметров всё ещё `http://10.0.2.2:8000/`; прежние тестовые сборки с `-PaiServerHost=192.168.1.101` и HTTP продолжают использовать старую конфигурацию.
+- При `aiServerScheme=https` генерируется base URL с HTTPS и указанным портом, cleartext для данного домена выключен. Если передан публичный CA PEM, он копируется в **generated debug-only** `res/raw`, и `network_security_config` доверяет ему лишь для указанного хоста. Системные CA остаются доверенными. Секретный CA private key или PEM внутри репозитория запрещён.
+- Android `release` не получает ни тестовый CA, ни URL, ни возможность cleartext. Нельзя включать в APK новый серверный `GEMINI_API_KEY`.
+- Доверие к CA само по себе не заменяет проверку SAN или личную авторизацию устройства. Следующим шагом должен быть безопасный способ первоначального спаривания.
+- `AiProcessorFactory` пока использует существующий конструктор без `DeviceCredentialStore`, даже если собран HTTPS debug: защищённый сервер вернёт 401 до реализации спаривания. Никакие реальные токены не предусмотрены в CI.
+
+### Проверка опции HTTPS в GitHub Actions
+
+Отдельный шаг Android CI генерирует на runner временную public CA и ключ (ключ немедленно удаляется после сборки) и компилирует debug APK с `-PaiServerScheme=https`, `-PaiServerPort=18443`, `-PaiDebugCaPemFile`. Это проверка build-time ресурса, **не TLS handshake с телефона**.
+
+## Подтверждённые результаты CI (2026-11-05)
+
+- **Windows + Linux TLS E2E:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41921772450 — по `22 passed` на каждой системе.
+- **Android debug HTTPS сборка с transient public CA:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41922018616 — `success`; аналогичный дополнительный запуск https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41922336129 — `success`.
+- **Android Keystore instrumented на API 35 эмуляторе:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41922336147 — `7 tests`, `BUILD SUCCESSFUL`, `completed/success`.
+- Это не физический телефон и не настоящий LAN TLS, и не означает, что пользователю выдан токен или рабочий FastAPI стал авторизованным.
+
