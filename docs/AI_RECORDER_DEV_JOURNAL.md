@@ -581,3 +581,15 @@ BACKEND_CHANGED=NO
 
 **Остаётся:** запуск Keystore instrumented-тестов в эмуляторе; реализация доверенного первоначального спаривания/ввода токена Android; получение настоящего LAN HTTPS сертификата с SAN нужного хоста/IP; HTTPS E2E на реальном устройстве; только после этого — контролируемое переключение `AiProcessorFactory` на токен/HTTPS. Текущий Windows LAN HTTP не защищён этой веткой, его нельзя открывать в Интернет. Рабочий Qwen3 и Gemini opt-in не переключались; никаких реальных аудио или Gemini ключей не трогали.
 
+## 39. Этап 47: Android Keystore instrumentation — 7/7 PASS на эмуляторе (2026-11-05)
+
+**Подтверждено GitHub Actions:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41922336147
+
+- Job `keystore-emulator` завершился `completed/success`.
+- Журнал тестов: `Starting 7 tests on test(AVD) - 15`, `Finished 7 tests on test(AVD) - 15`, затем `:app:connectedDebugAndroidTest` и `BUILD SUCCESSFUL in 1m 33s`.
+- Запускались **только** `com.nicko.airecorder.ai.DeviceCredentialStoreInstrumentedTest` на Android API 35 (Google APIs, x86_64), с отдельными test-only `SharedPreferences` и Keystore alias. Тесты проверяют шифрование, повторное чтение, изменение IV, некорректный/подменённый шифртекст, отсутствующий ключ и очистку.
+- Подтверждена работа **Android Keystore в эмуляторе**, но не на физическом телефоне владельца и не в связке с реальным HTTPS LAN.
+- Последний запуск серверных тестов на Ubuntu и Windows (run `41922336166`) завершён успешно; дополнительный Android debug-HTTPS CI (run `41922336129`) также завершён `success`.
+- Текущий APK и Windows `AIRecorderServer` не менялись, постоянный токен устройства не выдавался, Gemini не включалась. Draft PR #10 не объединён.
+- **Следующий этап:** безопасный способ спаривания Android с HTTPS endpoint по доверенному сертификату и ограниченный тест на настоящем телефоне; затем opt-in включение `DeviceCredentialStore` в `AiProcessorFactory` и реальный тест отзыва токена. Не включать auth на существующем HTTP LAN.
+
