@@ -40,13 +40,22 @@ public final class DeviceCredentialStore implements DeviceAccessTokenSource {
 
     private final Context context;
     private final SharedPreferences preferences;
+    private final String keyAlias;
 
     public DeviceCredentialStore(Context context) {
-        if (context == null) {
-            throw new IllegalArgumentException("Context required");
+        this(context, PREFS, ALIAS);
+    }
+
+    // Package-private test-scoped storage: instrumentation never deletes the
+    // actual device pairing from a user's installed app.
+    DeviceCredentialStore(Context context, String preferenceName, String keyAlias) {
+        if (context == null || preferenceName == null || keyAlias == null
+                || preferenceName.isEmpty() || keyAlias.isEmpty()) {
+            throw new IllegalArgumentException("Credential store configuration invalid");
         }
         this.context = context.getApplicationContext();
-        this.preferences = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        this.preferences = this.context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE);
+        this.keyAlias = keyAlias;
     }
 
     /** For trusted local provisioning only, after authenticated HTTPS pairing. */
@@ -131,8 +140,8 @@ public final class DeviceCredentialStore implements DeviceAccessTokenSource {
         try {
             KeyStore store = KeyStore.getInstance(KEYSTORE);
             store.load(null);
-            if (store.containsAlias(ALIAS)) {
-                store.deleteEntry(ALIAS);
+            if (store.containsAlias(keyAlias)) {
+                store.deleteEntry(keyAlias);
             }
         } catch (GeneralSecurityException error) {
             throw new IOException("Credential key cleanup unavailable");
@@ -142,7 +151,7 @@ public final class DeviceCredentialStore implements DeviceAccessTokenSource {
     private SecretKey keyForEncrypt() throws GeneralSecurityException, IOException {
         KeyStore store = KeyStore.getInstance(KEYSTORE);
         store.load(null);
-        Key existing = store.getKey(ALIAS, null);
+        Key existing = store.getKey(keyAlias, null);
         if (existing != null) {
             if (!(existing instanceof SecretKey)) {
                 throw new GeneralSecurityException("Wrong key type");
@@ -151,7 +160,7 @@ public final class DeviceCredentialStore implements DeviceAccessTokenSource {
         }
         KeyGenerator generator = KeyGenerator.getInstance(
                 KeyProperties.KEY_ALGORITHM_AES, KEYSTORE);
-        generator.init(new KeyGenParameterSpec.Builder(ALIAS,
+        generator.init(new KeyGenParameterSpec.Builder(keyAlias,
                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setKeySize(256)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -165,7 +174,7 @@ public final class DeviceCredentialStore implements DeviceAccessTokenSource {
     private SecretKey existingKey() throws GeneralSecurityException, IOException {
         KeyStore store = KeyStore.getInstance(KEYSTORE);
         store.load(null);
-        Key key = store.getKey(ALIAS, null);
+        Key key = store.getKey(keyAlias, null);
         if (!(key instanceof SecretKey)) {
             throw new GeneralSecurityException("Credential key missing");
         }
