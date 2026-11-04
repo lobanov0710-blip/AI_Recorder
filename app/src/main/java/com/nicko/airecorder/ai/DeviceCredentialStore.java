@@ -139,7 +139,7 @@ public final class DeviceCredentialStore implements DeviceAccessTokenSource {
         }
     }
 
-    private SecretKey keyForEncrypt() throws GeneralSecurityException {
+    private SecretKey keyForEncrypt() throws GeneralSecurityException, IOException {
         KeyStore store = KeyStore.getInstance(KEYSTORE);
         store.load(null);
         Key existing = store.getKey(ALIAS, null);
@@ -162,7 +162,7 @@ public final class DeviceCredentialStore implements DeviceAccessTokenSource {
         return generator.generateKey();
     }
 
-    private SecretKey existingKey() throws GeneralSecurityException {
+    private SecretKey existingKey() throws GeneralSecurityException, IOException {
         KeyStore store = KeyStore.getInstance(KEYSTORE);
         store.load(null);
         Key key = store.getKey(ALIAS, null);
