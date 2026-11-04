@@ -24,8 +24,8 @@ import java.security.KeyStore;
 public final class DeviceCredentialStoreInstrumentedTest {
     private static final String TEST_PREFS = "ai_recorder_test_credentials_stage46";
     private static final String TEST_ALIAS = "ai_recorder_test_key_stage46";
-    private static final String TOKEN_A = "ar1_" + "A".repeat(43);
-    private static final String TOKEN_B = "ar1_" + "B".repeat(43);
+    private static final String TOKEN_A = "ar1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    private static final String TOKEN_B = "ar1_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
     private Context context;
     private DeviceCredentialStore store;
