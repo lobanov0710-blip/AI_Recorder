@@ -549,3 +549,15 @@ BACKEND_CHANGED=NO
 - `AiProcessorFactory` и `AiProcessingWorker` не изменены: новый токен пока не используется приложением. TLS-сертификат, UI спаривания, реальный выпуск токена и TLS E2E ещё не выполнены. Текущий LAN HTTP остаётся потенциально доступен без авторизации; не открывать порт в Интернет.
 - Следующее действие: завершить Android CI и отдельно подготовить безопасное спаривание/HTTPS тестовую среду перед связкой нового конструктора с рабочим Worker.
 
+## 37. Этап 46: Android JVM + компиляция instrumentation — CI PASS (2026-11-04)
+
+**Подтверждено через GitHub Actions:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41857635341
+
+- Workflow `AI Recorder Android credential checks`, job `android-credentials`: `completed/success`.
+- Журнал Gradle: `:app:compileDebugAndroidTestJavaWithJavac` — выполнено, `:app:testDebugUnitTest` — выполнено, `BUILD SUCCESSFUL in 1m 17s`.
+- Это подтверждает успешную сборку и выполнение JVM unit-тестов на GitHub runner Ubuntu, плюс **компиляцию** Android-инструментальных тестов. Instrumented-тесты Keystore **не запускались на эмуляторе или телефоне**; полноценный HTTPS E2E также не выполнялся.
+- В рамках отладки workflow исправлены два CI-конфигурационных сбоя до запуска Gradle: удалено использование `android-actions/setup-android@v3` с устаревшим SDK package `tools`, затем задан абсолютный путь к `sdkmanager` через `$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager`. Android SDK 36.1 успешно установился на runner.
+- В инструментальных тестах исключён `String.repeat()` ради совместимости с минимальным API 24; тестовые aliases изолированы от данных пользователя.
+- Рабочий `AiProcessorFactory`, `AiProcessingWorker`, Android APK, Windows FastAPI и Qwen3/Gemini провайдеры не изменены. PR #9 остаётся **draft**, никакого слияния или реального выпуска токенов не было.
+- Следующий приоритет: настроить проверяемый HTTPS для отдельного тестового FastAPI, реализовать доверенную передачу и хранение реального индивидуального токена устройству, запустить инструментальные Keystore тесты на устройстве и испытать отзыв. До этих этапов включение auth на рабочем HTTP LAN недопустимо.
+
