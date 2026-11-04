@@ -38,3 +38,23 @@ python -m pytest -q tests/test_lan_auth.py tests/test_device_registry.py tests/t
 Документация:
 - https://developer.android.com/privacy-and-security/security-config
 - https://uvicorn.dev/settings/
+
+
+## Подготовлена опция HTTPS в Android debug (не включена)
+
+В `app/build.gradle.kts` добавлена **только opt-in debug-сборка** с параметрами:
+```powershell
+.\gradlew.bat :app:assembleDebug "-PaiServerScheme=https" "-PaiServerHost=192.168.1.101" "-PaiServerPort=18443" "-PaiDebugCaPemFile=C:\\path-outside-repository\\trusted-public-ca.pem"
+```
+*Это пример будущей команды, не инструкция запускать её сейчас: на реальном `192.168.1.101:18443` пока нет подтверждённого HTTPS-сервера и CA. Реальные TLS имена и адреса нужно согласовать с сертификатом.*
+
+- По умолчанию без параметров всё ещё `http://10.0.2.2:8000/`; прежние тестовые сборки с `-PaiServerHost=192.168.1.101` и HTTP продолжают использовать старую конфигурацию.
+- При `aiServerScheme=https` генерируется base URL с HTTPS и указанным портом, cleartext для данного домена выключен. Если передан публичный CA PEM, он копируется в **generated debug-only** `res/raw`, и `network_security_config` доверяет ему лишь для указанного хоста. Системные CA остаются доверенными. Секретный CA private key или PEM внутри репозитория запрещён.
+- Android `release` не получает ни тестовый CA, ни URL, ни возможность cleartext. Нельзя включать в APK новый серверный `GEMINI_API_KEY`.
+- Доверие к CA само по себе не заменяет проверку SAN или личную авторизацию устройства. Следующим шагом должен быть безопасный способ первоначального спаривания.
+- `AiProcessorFactory` пока использует существующий конструктор без `DeviceCredentialStore`, даже если собран HTTPS debug: защищённый сервер вернёт 401 до реализации спаривания. Никакие реальные токены не предусмотрены в CI.
+
+### Проверка опции HTTPS в GitHub Actions
+
+Отдельный шаг Android CI генерирует на runner временную public CA и ключ (ключ немедленно удаляется после сборки) и компилирует debug APK с `-PaiServerScheme=https`, `-PaiServerPort=18443`, `-PaiDebugCaPemFile`. Это проверка build-time ресурса, **не TLS handshake с телефона**.
+
