@@ -199,3 +199,17 @@
 **Приоритет:** сохранить работающую связь телефона с сервером, проверить реальных слушателей/PID и эффективные правила Windows Firewall для порта 8000, затем проектировать узко ограниченный LAN-доступ и устойчивый запуск. `Public` сам по себе не доказывает уязвимость. Microsoft рекомендует выбирать Private только для сети, устройства которой пользователь знает и доверяет; Public остаётся более ограничительным вариантом. Справка: https://support.microsoft.com/en-us/windows/experience/connectivity-networking/essential-network-settings-and-tasks-in-windows . Для фильтров портов/адресов в активном хранилище: https://learn.microsoft.com/en-us/powershell/module/netsecurity/get-netfirewallrule .
 
 **Изменений в Windows/Android/Backend по результату этого аудита не выполнено.**
+
+## 15. Сетевой аудит: отсутствует listener TCP 8000 (2026-11-04)
+
+**Исходные факты из вывода пользователя `AIRecorder_network_detail.ps1`:**
+- `LAN_LISTENER=False`: сценарий **не нашёл ни одного TCP LISTEN на порту 8000** в момент проверки (строки `LISTENER=...` отсутствуют). Ранее LAN `/health` и Android E2E проходили, но их успех не доказывает непрерывную доступность сейчас.
+- `STATE_PID=5064`, `STATE_PID_LISTENING=False`: PID в файле сценария активации больше не соответствует слушателю TCP 8000; не использовать PID для принудительного kill.
+- `PUBLIC_FIREWALL_ENABLED=True`, `PUBLIC_DEFAULT_INBOUND=Block`: профиль Public блокирует входящие по умолчанию.
+- Обнаружено разрешающее правило `AI Recorder LAN 8000`, но `RULE_PROFILE=Private`, `RULE_REMOTE=LocalSubnet`, `RULE_PROTOCOL=TCP`. При текущем сетевом профиле Public **одно это правило не разрешает подключения**. При этом сценарий не анализировал альтернативные правила по приложению/диапазону: окончательное заключение о полном Firewall-policy делать нельзя.
+- До восстановления listener не надо менять профиль сети или Firewall: сначала сервер должен запуститься и дать локальный `/health`.
+- Источник подтверждения механики Get-NetTCPConnection и профильных правил Windows: https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-nettcpconnection и https://learn.microsoft.com/en-us/powershell/module/netsecurity/get-netfirewallprofile .
+
+**Следующие действия:** мягко восстановить FastAPI на `192.168.1.101:8000` (не убивая чужие процессы), `AI_PROVIDER=lmstudio`, с отдельным журналом PID и логами; убедиться в локальном HTTP 200. Затем проверить с телефона `/health`; если доступа нет, согласовать изменение только узкого Firewall-rule либо доверенного профиля, не открывая API на все интерфейсы / в интернет. Автозапуск не включать, пока причины остановки не выяснены.
+
+**Никаких изменений Firewall или процессов в этом этапе из аудита не следует; пока выполнены только чтение конфигурации и журналирование.**
