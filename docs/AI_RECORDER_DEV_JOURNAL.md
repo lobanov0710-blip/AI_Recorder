@@ -520,3 +520,14 @@ BACKEND_CHANGED=NO
 
 **Следующие действия:** дождаться CI после обновления GitHub Actions; далее подготовить Android Keystore-хранилище в отдельном подпункте и интеграционные тесты без изменения текущего APK.
 
+## 35. Этап 45: Linux и Windows CI — 19/19 PASS на каждой системе (2026-11-04)
+
+**Проверено через GitHub Actions:** https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41851413408
+
+- `lan-auth-unit (ubuntu-latest)`: `completed/success`, журнал: `19 passed, 1 warning in 0.27s`.
+- `lan-auth-unit (windows-latest)`: `completed/success`, журнал: `19 passed, 1 warning in 1.39s`.
+- Workflow использует `actions/checkout@v7`, `actions/setup-python@v7` и `persist-credentials:false`; проверки выполняются без Google API-ключа и без обращения к настоящему телефону или FastAPI пользователя.
+- В отличие от только Linux-результата, теперь проверена работа SQLite, путей и отзыва токенов на **Windows CI**.
+- Общее число тестовых запусков — **38 успешных** (19 сценариев × 2 ОС), не 38 разных тестов. Оставшееся предупреждение связано с тестовой зависимостью; верификация ограничена unit-тестами.
+- **Не означает**, что LAN HTTP уже авторизован, TLS включён или Android Keystore интегрирован. Реальные токены ещё не выдавались; рабочий Qwen3/Gemini не переключались.
+
