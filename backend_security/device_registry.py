@@ -14,7 +14,6 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import quote
 
 
 class DeviceRegistryError(RuntimeError):
@@ -88,7 +87,7 @@ class DeviceRegistry:
             raise DeviceRegistryError("Registry is unavailable")
         try:
             if read_only:
-                uri = "file:" + quote(str(self.path.resolve()), safe="/:") + "?mode=ro"
+                uri = self.path.resolve().as_uri() + "?mode=ro"
                 return sqlite3.connect(uri, timeout=2.0, uri=True)
             return sqlite3.connect(str(self.path), timeout=2.0)
         except sqlite3.Error as exc:
