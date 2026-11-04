@@ -20,12 +20,20 @@ import java.net.UnknownServiceException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Collections;
+import java.io.IOException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.Protocol;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 import okhttp3.ConnectionSpec;
 import okhttp3.OkHttpClient;
 import okhttp3.mockwebserver.MockResponse;
@@ -322,6 +330,77 @@ public class RemoteAiProcessorTest {
             assertEquals("AI_NOT_CONFIGURED", error.getErrorCode());
             assertFalse(error.isRetryable());
         }
+    }
+
+    @Test
+    public void credentialSource_neverAllowedOnPlainHttp() {
+        DeviceAccessTokenSource source = () -> "ar1_" + "A".repeat(43);
+        assertThrows(IllegalArgumentException.class,
+                () -> new RemoteAiProcessor(server.url("/v1/analyze"),
+                        new OkHttpClient.Builder().build(), source));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    public void missingOrCorruptCredentialFailsClosedBeforeAnyUpload() {
+        HttpUrl https = HttpUrl.get("https://ai-recorder.example/v1/analyze");
+        DeviceAccessTokenSource[] invalid = {
+                () -> null,
+                () -> "invalid-token",
+                () -> "ar1_" + "A".repeat(42),
+                () -> { throw new IOException("internal secret/path must not leak"); }
+        };
+        for (DeviceAccessTokenSource source : invalid) {
+            processor = new RemoteAiProcessor(https, new OkHttpClient.Builder().build(), source);
+            AiProcessingException error = assertError("AI_AUTH_REQUIRED", false);
+            assertFalse(error.getMessage().contains("secret"));
+            assertFalse(error.isRetryable());
+        }
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    public void validCredentialUsedOnlyForHttpsAndPreservesMultipartContract() throws Exception {
+        HttpUrl https = HttpUrl.get("https://ai-recorder.example/v1/analyze");
+        String credential = "ar1_" + "A".repeat(43);
+        AtomicReference<Request> captured = new AtomicReference<>();
+        OkHttpClient fakeTransport = new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    captured.set(chain.request());
+                    return new Response.Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(200).message("OK")
+                            .body(ResponseBody.create(MediaType.get("application/json"), JSON))
+                            .build();
+                }).build();
+        processor = new RemoteAiProcessor(https, fakeTransport, () -> credential);
+        AiResult result = processor.process(17L, audio);
+        assertEquals(17L, result.getRecordId());
+        Request request = captured.get();
+        assertNotNull(request);
+        assertEquals("https", request.url().scheme());
+        assertEquals("Bearer " + credential, request.header("Authorization"));
+        assertEquals("/v1/analyze", request.url().encodedPath());
+        assertTrue(request.body().contentType().toString().startsWith("multipart/form-data"));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    public void deviceRevocationIsObservedOnNextRequestWithoutRestart() throws Exception {
+        HttpUrl https = HttpUrl.get("https://ai-recorder.example/v1/analyze");
+        AtomicReference<String> token = new AtomicReference<>("ar1_" + "B".repeat(43));
+        OkHttpClient fakeTransport = new OkHttpClient.Builder()
+                .addInterceptor(chain -> new Response.Builder()
+                        .request(chain.request()).protocol(Protocol.HTTP_1_1)
+                        .code(200).message("OK")
+                        .body(ResponseBody.create(MediaType.get("application/json"), JSON))
+                        .build()).build();
+        processor = new RemoteAiProcessor(https, fakeTransport, token::get);
+        assertEquals(17L, processor.process(17L, audio).getRecordId());
+        token.set(null);
+        assertError("AI_AUTH_REQUIRED", false);
+        assertEquals(0, server.getRequestCount());
     }
 
     private AiProcessingException assertError(String code, boolean retryable) {

@@ -43,6 +43,7 @@ public final class RemoteAiProcessor implements AiProcessor {
 
     private final HttpUrl endpoint;
     private final OkHttpClient client;
+    private final DeviceAccessTokenSource tokenSource; // null preserves legacy HTTP debug flow
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final AtomicReference<Call> activeCall = new AtomicReference<>();
 
@@ -54,9 +55,22 @@ public final class RemoteAiProcessor implements AiProcessor {
         this(endpoint(baseUrl, allowLanHttp), CLIENT);
     }
 
+    /** Opt-in authenticated mode. The paired token is never compiled into the APK. */
+    public RemoteAiProcessor(String baseUrl, DeviceAccessTokenSource tokenSource) {
+        this(endpoint(baseUrl, false), CLIENT, Objects.requireNonNull(tokenSource, "tokenSource"));
+    }
+
     // Package-private transport injection for tests; production always uses CLIENT.
     RemoteAiProcessor(HttpUrl endpoint, OkHttpClient client) {
+        this(endpoint, client, null);
+    }
+
+    RemoteAiProcessor(HttpUrl endpoint, OkHttpClient client, DeviceAccessTokenSource tokenSource) {
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
+        if (tokenSource != null && !endpoint.isHttps()) {
+            throw new IllegalArgumentException("Device credentials require HTTPS");
+        }
+        this.tokenSource = tokenSource;
         this.client = Objects.requireNonNull(client, "client").newBuilder()
                 .retryOnConnectionFailure(false).followRedirects(false)
                 .followSslRedirects(false).proxy(Proxy.NO_PROXY).build();
@@ -113,8 +127,23 @@ public final class RemoteAiProcessor implements AiProcessor {
                 .addFormDataPart("record_id", Long.toString(recordId))
                 .addFormDataPart("file", "recording.m4a", RequestBody.create(audioFile, AUDIO_TYPE))
                 .build();
-        Call call = client.newCall(new Request.Builder().url(endpoint)
-                .header("Accept", "application/json").post(oneShot(multipart)).build());
+        Request.Builder request = new Request.Builder().url(endpoint)
+                .header("Accept", "application/json").post(oneShot(multipart));
+        if (tokenSource != null) {
+            // Read credentials per request so local revoke/re-pair takes effect
+            // without restarting the process. Never read or send over HTTP.
+            String token;
+            try {
+                token = tokenSource.readToken();
+            } catch (IOException | RuntimeException error) {
+                throw new AiProcessingException("AI_AUTH_REQUIRED", false);
+            }
+            if (!DeviceCredentialStore.validToken(token)) {
+                throw new AiProcessingException("AI_AUTH_REQUIRED", false);
+            }
+            request.header("Authorization", "Bearer " + token);
+        }
+        Call call = client.newCall(request.build());
         if (!activeCall.compareAndSet(null, call)) {
             throw new AiProcessingException("PROCESSING_FAILED", false);
         }
