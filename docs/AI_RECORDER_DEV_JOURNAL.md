@@ -422,3 +422,27 @@ GEMINI_HTTP_E2E=FAIL PermissionError [WinError 32] ... AIRecorder_gemini_http_e2
 
 **Следующий этап:** проверить фактический `main.py`/`gemini_adapter.py` на Windows без передачи их секретов и написать минимальные офлайновые контрактные тесты (доступность API-ключа только в окружении, маппинг upstream ошибок, size limit, opt-in); далее спроектировать безопасный выбор провайдера без изменений Android-контракта. Не переключать текущий LAN Uvicorn на Gemini автоматически.
 
+## 29. Офлайновые контрактные тесты Gemini-адаптера без квоты Google (2026-11-04)
+
+В среде подготовки ассистента создан `AIRecorder_gemini_offline_audit.py`, использующий `httpx.MockTransport`, фиктивный API-ключ и только синтетические предложения. Скрипт **не вызывает Интернет/API Google** и не открывает FastAPI.
+
+Шесть сценариев проверены **на точном `ADAPTER_SOURCE` из ранее подготовленного `ai_recorder_gemini_install.py`**, развёрнутом во временный каталог ассистента; это НЕ запуск текущего локального `gemini_adapter.py` на компьютере владельца:
+
+```text
+STRUCTURED_RESPONSE=PASS
+UPSTREAM_429=PASS
+RESPONSE_SIZE_LIMIT=PASS
+MALFORMED_JSON=PASS
+INCOMPLETE_RESPONSE=PASS
+MISSING_API_KEY=PASS
+SUMMARY=6/6 PASS
+NETWORK_REQUESTS=0
+REAL_API_KEY_USED=NO
+BACKEND_CHANGED=NO
+```
+
+- Проверено: обработка валидного структурированного ответа, передача исходной HTTP 429 как `HTTPStatusError`, ограничение размера 64 КБ, отказ от невалидного JSON и незавершённого ответа, отказ при отсутствующем `GEMINI_API_KEY`.
+- Не проверено этими тестами: текущий файл на Windows, безопасность всей LAN-конфигурации, Pydantic/grounding в `main.py`, новый Android запрос или отказоустойчивость Uvicorn.
+- Пользователь ранее подтвердил `CLEANUP_PATCH=SUCCESS`: ошибка удаления временного лога отделена от результата HTTP E2E, повторять запрос Google не требуется.
+- Следующее действие: однократно запустить автономный тестовый скрипт на фактическом `gemini_adapter.py` ПК, затем отдельно планировать авторизацию LAN API и явно выбранный облачный режим для реальных записей. Текущий LAN FastAPI оставляем на Qwen3.
+
