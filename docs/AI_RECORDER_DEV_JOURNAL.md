@@ -561,3 +561,23 @@ BACKEND_CHANGED=NO
 - Рабочий `AiProcessorFactory`, `AiProcessingWorker`, Android APK, Windows FastAPI и Qwen3/Gemini провайдеры не изменены. PR #9 остаётся **draft**, никакого слияния или реального выпуска токенов не было.
 - Следующий приоритет: настроить проверяемый HTTPS для отдельного тестового FastAPI, реализовать доверенную передачу и хранение реального индивидуального токена устройству, запустить инструментальные Keystore тесты на устройстве и испытать отзыв. До этих этапов включение auth на рабочем HTTP LAN недопустимо.
 
+## 38. Этап 47: HTTPS loopback E2E + Android debug trust (2026-11-05)
+
+**Разработка:** draft PR #10 https://github.com/lobanov0710-blip/AI_Recorder/pull/10, ветка `feature/ai-agent-https-e2e-stage47` → `feature/ai-agent-android-keystore-stage46` (PR #9; нижние зависимости PR #8/#7/#5). `master` не затронут.
+
+**Подготовлено:**
+- `backend_security/stage47_loopback_app.py`: строго тестовое FastAPI приложение, отказ при отсутствии `AI_STAGE47_TEST_ONLY=1`, синтетические ответы без Whisper/M4A/LM Studio/Gemini, изоляция в отдельном процессе `127.0.0.1`.
+- `tests/test_stage47_tls_e2e.py`: настоящий одноразовый HTTPS сервер Uvicorn с PKI, сгенерированной в тестовом каталоге. `httpx` проверяет доверенный CA, корректность SAN, отклонение неизвестного CA и другого hostname; `LanAuthGuard` и `DeviceRegistry` проверяют отсутствие/подмену/отзыв Bearer-токена, независимость устройств и `X-Forwarded-Proto` spoof по HTTP. Нет реальных записей, Google API запросов и долговременных секретов.
+- `.github/workflows/ai-lan-auth-tests.yml` запускает Stage44–47 тесты на `ubuntu-latest` и `windows-latest`; оба тестовых процесса завершаются независимо от успеха/ошибки.
+- `app/build.gradle.kts`: по умолчанию сохранены `http://10.0.2.2:8000`/старый LAN debug; **только по явно заданным Gradle-параметрам** `aiServerScheme=https`, `aiServerHost`, `aiServerPort` формируется HTTPS debug URL. Можно включить `aiDebugCaPemFile` с **публичным** CA PEM вне репозитория. CA попадает только в debug-generated `res/raw`, доверие ограничено выбранным адресом, cleartext там отключён. Секретные ключи в Git/APK запрещены. `release` не изменён.
+- `.github/workflows/ai-android-credentials.yml`: добавлена сборка HTTPS debug с одноразовым test CA (он создаётся в runner temp, после использования удаляется, ключ не коммитится).
+- `.github/workflows/ai-keystore-emulator.yml`: добавлен отдельный запуск инструментальных тестов `DeviceCredentialStoreInstrumentedTest` на Android API 35 эмуляторе. **На момент этой записи его результат ещё не подтверждён.**
+- Документация `docs/ai-server-https-e2e-stage47.md` описывает границы тестов, сертификаты, режимы запуска и дальнейшую интеграцию.
+
+**Проверенные результаты GitHub Actions:**
+- https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41921772450 — Linux **22 PASS**, Windows **22 PASS**, в т. ч. реальные TLS handshake/авторизация/отзыв.
+- https://github.com/lobanov0710-blip/AI_Recorder/actions/runs/41922018616 — Android `testDebugUnitTest`, компиляция androidTest и **отдельная HTTPS debug-сборка с transient CA** завершились `success`. Это compile/unit, не HTTPS с реальным телефоном.
+- Новые CI прогоны после подключения emulator workflow могут быть в очереди; их нужно проверить перед утверждением полной готовности.
+
+**Остаётся:** запуск Keystore instrumented-тестов в эмуляторе; реализация доверенного первоначального спаривания/ввода токена Android; получение настоящего LAN HTTPS сертификата с SAN нужного хоста/IP; HTTPS E2E на реальном устройстве; только после этого — контролируемое переключение `AiProcessorFactory` на токен/HTTPS. Текущий Windows LAN HTTP не защищён этой веткой, его нельзя открывать в Интернет. Рабочий Qwen3 и Gemini opt-in не переключались; никаких реальных аудио или Gemini ключей не трогали.
+
