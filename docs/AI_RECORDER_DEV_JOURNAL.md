@@ -531,3 +531,21 @@ BACKEND_CHANGED=NO
 - Общее число тестовых запусков — **38 успешных** (19 сценариев × 2 ОС), не 38 разных тестов. Оставшееся предупреждение связано с тестовой зависимостью; верификация ограничена unit-тестами.
 - **Не означает**, что LAN HTTP уже авторизован, TLS включён или Android Keystore интегрирован. Реальные токены ещё не выдавались; рабочий Qwen3/Gemini не переключались.
 
+## 36. Этап 46: Android Keystore и HTTPS-only авторизация клиента — PR #9 (2026-11-04)
+
+**Выполнено в отдельной цепочке черновиков:**
+- Создан draft PR #9: https://github.com/lobanov0710-blip/AI_Recorder/pull/9, ветка `feature/ai-agent-android-keystore-stage46`, основанная на `feature/ai-agent-device-pairing-stage45` (PR #8), далее PR #7 и PR #5. `master` не изменён, слияний не было.
+- `DeviceCredentialStore.java`: сохранение персонального токена устройства с AES-256-GCM, ключ в Android Keystore; шифртекст в приватных SharedPreferences, уже исключённых из backup. Отсутствие или повреждение KeyStore-ключа/шифртекста приводит к отказу, не к обходу авторизации.
+- `DeviceAccessTokenSource.java`: интерфейс получения токена без встраивания в APK, `BuildConfig`, журналы или исходники.
+- `RemoteAiProcessor.java`: новый **opt-in конструктор**, принимающий токен только при HTTPS. Неверный/отсутствующий токен → постоянная ошибка `AI_AUTH_REQUIRED` **до отправки аудио**. Redirects/повторы внутри одного вызова по-прежнему отключены. Существующие конструкторы и default LAN HTTP поведение сохранены.
+- `RemoteAiProcessorTest.java`: добавлены JVM-тесты HTTPS-only, запрета отправки M4A при ошибке токена, правильного Authorization на фиктивном HTTPS и чтения актуального токена на каждом запросе.
+- `DeviceCredentialStoreInstrumentedTest.java`: инструментальные тесты Android Keystore (сохранение, IV, восстановление после повторного создания объекта, подмена ciphertext, потеря ключа, удаление). Тесты изолированы в test-only alias/SharedPreferences и не удаляют реальное спаривание владельца.
+- `docs/ai-server-android-keystore-stage46.md` описывает TLS, подготовку выдачи реквизитов устройству и порядок будущего E2E.
+- `.github/workflows/ai-android-credentials.yml`: CI для JVM unit-тестов и **компиляции** Android instrumented-тестов; запуск на эмуляторе этим workflow не выполняется.
+
+**Текущие проверки и ограничения:**
+- Первые 2 попытки Android CI не дошли до Gradle из-за инфраструктуры GitHub runner: `android-actions/setup-android@v3` запрашивал удалённый SDK-пакет `tools`; затем `sdkmanager` оказался не в `PATH`. Workflow исправлен на `$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager`, следующий CI на момент записи ещё проверяется. Не объявлять сборку успешной до лога Gradle.
+- Проверка Gemini/LAN server ранее пройдена, но **не повторяется**: этот этап не использует Gemini API и не переключает рабочий FastAPI на новый транспорт.
+- `AiProcessorFactory` и `AiProcessingWorker` не изменены: новый токен пока не используется приложением. TLS-сертификат, UI спаривания, реальный выпуск токена и TLS E2E ещё не выполнены. Текущий LAN HTTP остаётся потенциально доступен без авторизации; не открывать порт в Интернет.
+- Следующее действие: завершить Android CI и отдельно подготовить безопасное спаривание/HTTPS тестовую среду перед связкой нового конструктора с рабочим Worker.
+
