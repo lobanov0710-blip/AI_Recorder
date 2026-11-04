@@ -6,7 +6,6 @@ Can run on both Windows and Linux GitHub runners.
 from __future__ import annotations
 
 import datetime
-import ipaddress
 import os
 import socket
 import subprocess
@@ -42,7 +41,7 @@ def _tls_material(root: Path) -> tuple[Path, Path, Path]:
         .add_extension(x509.KeyUsage(
             digital_signature=True, key_encipherment=False, content_commitment=False,
             data_encipherment=False, key_agreement=False, key_cert_sign=True,
-            crl_sign=True, encipher_only=False, decipher_only=False
+            crl_sign=True, encipher_only=None, decipher_only=None
         ), critical=True)
         .sign(ca_key, hashes.SHA256())
     )
@@ -62,7 +61,7 @@ def _tls_material(root: Path) -> tuple[Path, Path, Path]:
         .add_extension(x509.KeyUsage(
             digital_signature=True, key_encipherment=False, content_commitment=False,
             data_encipherment=False, key_agreement=False, key_cert_sign=False,
-            crl_sign=False, encipher_only=False, decipher_only=False
+            crl_sign=False, encipher_only=None, decipher_only=None
         ), critical=True)
         .sign(ca_key, hashes.SHA256())
     )
